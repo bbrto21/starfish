@@ -1188,6 +1188,9 @@ bool CSSStyleValuePair::valueEquals(const CSSStyleValuePair& src) const
     case NamedColorValueKind:
         return m_value.m_namedColor == src.m_value.m_namedColor;
 
+    case UnresolvedColorValueKind:
+        return m_value.m_unresolvedColor->equals(src.m_value.m_unresolvedColor);
+
     case CSSPropertyNameValueKind:
         return m_value.m_cssPropertyNameValue ==
                src.m_value.m_cssPropertyNameValue;
@@ -1450,6 +1453,9 @@ void* CSSStyleValuePair::toPointerValueIfPossible() const
     case CalcValueKind:
         ptr = m_value.m_calc;
         break;
+    case UnresolvedColorValueKind:
+        ptr = m_value.m_unresolvedColor;
+        break;
     case FontFaceSrcDataValueKind:
         ptr = m_value.m_fontFaceSrcData;
         break;
@@ -1598,6 +1604,8 @@ String* CSSStyleValuePair::toString() const
         return colorValue().toString();
     case CSSStyleValuePair::ValueKind::NamedColorValueKind:
         return NamedColor::namedColorToString(namedColorValue());
+    case CSSStyleValuePair::ValueKind::UnresolvedColorValueKind:
+        return unresolvedColorValue()->toString();
     case CSSStyleValuePair::ValueKind::UrlValueKind: {
         StringBuilder builder;
         builder.appendString("url(\"");
@@ -3615,6 +3623,10 @@ void StyleResolver::applyProperty(Element* element,
     STARFISH_ASSERT(style);
     STARFISH_ASSERT(parentStyle);
 
+    // A declaration that wins the cascade for a color property supersedes a
+    // light-dark() that an earlier one deferred for the same property.
+    style->clearPendingColor(newCssValue.keyKind());
+
 #define MARK_SOME_NONE_INHERIT_MEMBER_EXPLICITLY_INHERITED()                \
     if (newCssValue.valueKind() == CSSStyleValuePair::ValueKind::Inherit) { \
         parentStyle->markSomeNonInheritMemberExplicitlyInherited(           \
@@ -3871,6 +3883,10 @@ void StyleResolver::applyProperty(Element* element,
         } else if (newCssValue.valueKind() ==
                    CSSStyleValuePair::ValueKind::ColorValueKind) {
             style->setColor(newCssValue.colorValue());
+        } else if (newCssValue.valueKind() ==
+                   CSSStyleValuePair::ValueKind::UnresolvedColorValueKind) {
+            style->setPendingColor(CSSStyleValuePair::KeyKind::Color,
+                                   newCssValue.unresolvedColorValue());
         } else {
             STARFISH_ASSERT(newCssValue.valueKind() ==
                             CSSStyleValuePair::ValueKind::NamedColorValueKind);
@@ -4235,6 +4251,11 @@ void StyleResolver::applyProperty(Element* element,
         case CSSStyleValuePair::ValueKind::ColorValueKind:
             style->setTextDecorationColor(newCssValue.colorValue());
             break;
+        case CSSStyleValuePair::ValueKind::UnresolvedColorValueKind:
+            style->setPendingColor(
+                CSSStyleValuePair::KeyKind::TextDecorationColor,
+                newCssValue.unresolvedColorValue());
+            break;
         default:
             STARFISH_ASSERT(newCssValue.valueKind() ==
                             CSSStyleValuePair::ValueKind::NamedColorValueKind);
@@ -4547,6 +4568,10 @@ void StyleResolver::applyProperty(Element* element,
         } else if (newCssValue.valueKind() ==
                    CSSStyleValuePair::ValueKind::ColorValueKind) {
             style->setBackgroundColor(newCssValue.colorValue());
+        } else if (newCssValue.valueKind() ==
+                   CSSStyleValuePair::ValueKind::UnresolvedColorValueKind) {
+            style->setPendingColor(CSSStyleValuePair::KeyKind::BackgroundColor,
+                                   newCssValue.unresolvedColorValue());
         } else {
             STARFISH_ASSERT(newCssValue.valueKind() ==
                             CSSStyleValuePair::ValueKind::NamedColorValueKind);
@@ -6076,34 +6101,39 @@ void StyleResolver::applyProperty(Element* element,
             STARFISH_RELEASE_ASSERT_SHOULD_NOT_BE_HERE();
         }
         break;
-#define ADD_RESOLVE_STYLE_BORDER_COLOR(POS, pos)                            \
-    case CSSStyleValuePair::KeyKind::Border##POS##Color:                    \
-        if (newCssValue.valueKind() ==                                      \
-            CSSStyleValuePair::ValueKind::Inherit) {                        \
-            BorderData pBorder = parentStyle->border();                     \
-            style->setBorder##POS##Color(pBorder.pos().color());            \
-            parentStyle->markSomeNonInheritMemberExplicitlyInherited(       \
-                newCssValue.keyKind());                                     \
-        } else if ((newCssValue.valueKind() ==                              \
-                    CSSStyleValuePair::ValueKind::Initial) ||               \
-                   (newCssValue.valueKind() ==                              \
-                    CSSStyleValuePair::ValueKind::Unset)) {                 \
-            style->clearBorder##POS##Color();                               \
-        } else if (newCssValue.valueKind() ==                               \
-                   CSSStyleValuePair::ValueKind::ColorValueKind) {          \
-            style->setBorder##POS##Color(newCssValue.colorValue());         \
-        } else {                                                            \
-            STARFISH_ASSERT(                                                \
-                newCssValue.valueKind() ==                                  \
-                CSSStyleValuePair::ValueKind::NamedColorValueKind);         \
-            if (newCssValue.namedColorValue() ==                            \
-                NamedColor::NamedColorValue::currentColor) {                \
-                style->clearBorder##POS##Color();                           \
-            } else {                                                        \
-                style->setBorder##POS##Color(NamedColor::namedColorToColor( \
-                    newCssValue.namedColorValue()));                        \
-            }                                                               \
-        }                                                                   \
+#define ADD_RESOLVE_STYLE_BORDER_COLOR(POS, pos)                             \
+    case CSSStyleValuePair::KeyKind::Border##POS##Color:                     \
+        if (newCssValue.valueKind() ==                                       \
+            CSSStyleValuePair::ValueKind::Inherit) {                         \
+            BorderData pBorder = parentStyle->border();                      \
+            style->setBorder##POS##Color(pBorder.pos().color());             \
+            parentStyle->markSomeNonInheritMemberExplicitlyInherited(        \
+                newCssValue.keyKind());                                      \
+        } else if ((newCssValue.valueKind() ==                               \
+                    CSSStyleValuePair::ValueKind::Initial) ||                \
+                   (newCssValue.valueKind() ==                               \
+                    CSSStyleValuePair::ValueKind::Unset)) {                  \
+            style->clearBorder##POS##Color();                                \
+        } else if (newCssValue.valueKind() ==                                \
+                   CSSStyleValuePair::ValueKind::ColorValueKind) {           \
+            style->setBorder##POS##Color(newCssValue.colorValue());          \
+        } else if (newCssValue.valueKind() ==                                \
+                   CSSStyleValuePair::ValueKind::UnresolvedColorValueKind) { \
+            style->setPendingColor(                                          \
+                CSSStyleValuePair::KeyKind::Border##POS##Color,              \
+                newCssValue.unresolvedColorValue());                         \
+        } else {                                                             \
+            STARFISH_ASSERT(                                                 \
+                newCssValue.valueKind() ==                                   \
+                CSSStyleValuePair::ValueKind::NamedColorValueKind);          \
+            if (newCssValue.namedColorValue() ==                             \
+                NamedColor::NamedColorValue::currentColor) {                 \
+                style->clearBorder##POS##Color();                            \
+            } else {                                                         \
+                style->setBorder##POS##Color(NamedColor::namedColorToColor(  \
+                    newCssValue.namedColorValue()));                         \
+            }                                                                \
+        }                                                                    \
         break;
         ADD_RESOLVE_STYLE_BORDER_COLOR(Top, top)
         ADD_RESOLVE_STYLE_BORDER_COLOR(Right, right)
@@ -6124,6 +6154,11 @@ void StyleResolver::applyProperty(Element* element,
         } else if (newCssValue.valueKind() ==
                    CSSStyleValuePair::ValueKind::ColorValueKind) {
             style->setBorderBlockStartColor(newCssValue.colorValue());
+        } else if (newCssValue.valueKind() ==
+                   CSSStyleValuePair::ValueKind::UnresolvedColorValueKind) {
+            style->setPendingColor(
+                CSSStyleValuePair::KeyKind::BorderBlockStartColor,
+                newCssValue.unresolvedColorValue());
         } else {
             STARFISH_ASSERT(newCssValue.valueKind() ==
                             CSSStyleValuePair::ValueKind::NamedColorValueKind);
@@ -6150,6 +6185,11 @@ void StyleResolver::applyProperty(Element* element,
         } else if (newCssValue.valueKind() ==
                    CSSStyleValuePair::ValueKind::ColorValueKind) {
             style->setBorderBlockEndColor(newCssValue.colorValue());
+        } else if (newCssValue.valueKind() ==
+                   CSSStyleValuePair::ValueKind::UnresolvedColorValueKind) {
+            style->setPendingColor(
+                CSSStyleValuePair::KeyKind::BorderBlockEndColor,
+                newCssValue.unresolvedColorValue());
         } else {
             STARFISH_ASSERT(newCssValue.valueKind() ==
                             CSSStyleValuePair::ValueKind::NamedColorValueKind);
@@ -6176,6 +6216,11 @@ void StyleResolver::applyProperty(Element* element,
         } else if (newCssValue.valueKind() ==
                    CSSStyleValuePair::ValueKind::ColorValueKind) {
             style->setBorderInlineStartColor(newCssValue.colorValue());
+        } else if (newCssValue.valueKind() ==
+                   CSSStyleValuePair::ValueKind::UnresolvedColorValueKind) {
+            style->setPendingColor(
+                CSSStyleValuePair::KeyKind::BorderInlineStartColor,
+                newCssValue.unresolvedColorValue());
         } else {
             STARFISH_ASSERT(newCssValue.valueKind() ==
                             CSSStyleValuePair::ValueKind::NamedColorValueKind);
@@ -6202,6 +6247,11 @@ void StyleResolver::applyProperty(Element* element,
         } else if (newCssValue.valueKind() ==
                    CSSStyleValuePair::ValueKind::ColorValueKind) {
             style->setBorderInlineEndColor(newCssValue.colorValue());
+        } else if (newCssValue.valueKind() ==
+                   CSSStyleValuePair::ValueKind::UnresolvedColorValueKind) {
+            style->setPendingColor(
+                CSSStyleValuePair::KeyKind::BorderInlineEndColor,
+                newCssValue.unresolvedColorValue());
         } else {
             STARFISH_ASSERT(newCssValue.valueKind() ==
                             CSSStyleValuePair::ValueKind::NamedColorValueKind);
@@ -6963,6 +7013,10 @@ void StyleResolver::applyProperty(Element* element,
                    CSSStyleValuePair::ValueKind::ColorValueKind) {
             style->setFill(new StylePaintData(newCssValue.colorValue()));
         } else if (newCssValue.valueKind() ==
+                   CSSStyleValuePair::ValueKind::UnresolvedColorValueKind) {
+            style->setPendingColor(CSSStyleValuePair::KeyKind::Fill,
+                                   newCssValue.unresolvedColorValue());
+        } else if (newCssValue.valueKind() ==
                    CSSStyleValuePair::ValueKind::NamedColorValueKind) {
             if (newCssValue.namedColorValue() == NamedColor::currentColor) {
                 style->setFill(new StylePaintData(NamedColor::currentColor));
@@ -7066,6 +7120,10 @@ void StyleResolver::applyProperty(Element* element,
         } else if (newCssValue.valueKind() ==
                    CSSStyleValuePair::ValueKind::ColorValueKind) {
             style->setStroke(new StylePaintData(newCssValue.colorValue()));
+        } else if (newCssValue.valueKind() ==
+                   CSSStyleValuePair::ValueKind::UnresolvedColorValueKind) {
+            style->setPendingColor(CSSStyleValuePair::KeyKind::Stroke,
+                                   newCssValue.unresolvedColorValue());
         } else if (newCssValue.valueKind() ==
                    CSSStyleValuePair::ValueKind::NamedColorValueKind) {
             if (newCssValue.namedColorValue() == NamedColor::currentColor) {
@@ -7490,6 +7548,10 @@ void StyleResolver::applyProperty(Element* element,
                    CSSStyleValuePair::ValueKind::ColorValueKind) {
             style->setOutlineColor(newCssValue.colorValue());
         } else if (newCssValue.valueKind() ==
+                   CSSStyleValuePair::ValueKind::UnresolvedColorValueKind) {
+            style->setPendingColor(CSSStyleValuePair::KeyKind::OutlineColor,
+                                   newCssValue.unresolvedColorValue());
+        } else if (newCssValue.valueKind() ==
                    CSSStyleValuePair::ValueKind::NamedColorValueKind) {
             if (newCssValue.namedColorValue() == NamedColor::currentColor) {
                 if (style->hasRareComputeStyleData()) {
@@ -7793,6 +7855,10 @@ void StyleResolver::applyProperty(Element* element,
             break;
         case CSSStyleValuePair::ValueKind::ColorValueKind:
             style->setCaretColor(newCssValue.colorValue());
+            break;
+        case CSSStyleValuePair::ValueKind::UnresolvedColorValueKind:
+            style->setPendingColor(CSSStyleValuePair::KeyKind::CaretColor,
+                                   newCssValue.unresolvedColorValue());
             break;
         default:
             STARFISH_ASSERT(newCssValue.valueKind() ==
@@ -11356,6 +11422,13 @@ bool CSSStyleValuePair::updateValueUnitColor(const CSSTokenValue& token)
     return CSSPropertyParser::parseColor(token, this);
 }
 
+bool CSSStyleValuePair::updateValueUnitResolvedColor(const CSSTokenValue& token)
+{
+    return updateValueUnitColor(token) &&
+           m_valueKind !=
+               CSSStyleValuePair::ValueKind::UnresolvedColorValueKind;
+}
+
 bool CSSStyleValuePair::updateValueUnitBorderColor(const CSSTokenValue& token)
 {
     return updateValueUnitColor(token);
@@ -12498,7 +12571,7 @@ bool CSSStyleValuePair::updateValueUnitGradient(const CSSTokenValue& value)
             }
 
             CSSTokenValue value(ps->toUTF8NonGCString().data());
-            if (!color.updateValueUnitColor(value)) {
+            if (!color.updateValueUnitResolvedColor(value)) {
                 return false;
             }
 
@@ -15571,7 +15644,7 @@ bool CSSStyleValuePair::updateValueShadow(const CSSTokenVector& tokens,
 
                     shadow.multiValue()->push_back(lengths);
 
-                } else if (temp.updateValueUnitColor(tokens[j])) {
+                } else if (temp.updateValueUnitResolvedColor(tokens[j])) {
                     // color
                     if (hasColor) {
                         return false;
@@ -16791,7 +16864,7 @@ bool CSSStyleValuePair::updateValueStopColor(Document* document,
         return false;
     }
 
-    return updateValueUnitColor(tokens[0]);
+    return updateValueUnitResolvedColor(tokens[0]);
 }
 
 bool CSSStyleValuePair::updateValueStopOpacity(Document* document,
