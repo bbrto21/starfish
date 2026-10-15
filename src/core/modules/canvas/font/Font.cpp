@@ -214,29 +214,13 @@ Font* FontSelector::loadFont(String* familyNameArray[],
         UTF8StringDataNonGCStd cacheStr =
             mergeStyleWeightWithString(fm, style, weight);
 
-        bool existInPlatformLayerCache = false;
         bool isGenericName = isGenericFontName(fm);
 
-        FontFace* face = m_platformFontCache->lookupFaceCache(
-            cacheStr, existInPlatformLayerCache);
-
-        if (existInPlatformLayerCache) {
-            if (face) {
-                result->m_fontFaceList->push_back(face);
-                continue;
-            }
-        } else {
-            face = loadFromPlatform(fm, isGenericName, style, weight);
-            if (face) {
-                m_platformFontCache->insertFaceCache(cacheStr, face);
-                result->m_fontFaceList->push_back(face);
-                continue;
-            } else {
-                m_platformFontCache->insertFaceCache(cacheStr, nullptr);
-            }
-        }
-
-        // search webfont Path
+        // CSS Fonts 4 §5: a @font-face rule whose family name matches
+        // takes priority over a system font with the same name. Search
+        // web fonts first so that the matching @font-face is used (and
+        // its FontResource requested) even when the platform has a font
+        // with the same family name.
         int fitScore = 0;
         WebFont* selectedWebFont = nullptr;
 
@@ -261,7 +245,9 @@ Font* FontSelector::loadFont(String* familyNameArray[],
                 }
             }
         }
+
         if (selectedWebFont) {
+            FontFace* face = nullptr;
             if (!selectedWebFont->fromLocal()) {
                 // download from web
                 if (!selectedWebFont->fontResource()->isRequested()) {
@@ -287,14 +273,21 @@ Font* FontSelector::loadFont(String* familyNameArray[],
                             result->m_fontFaceList->size();
                     }
                 }
+                // A failed @font-face does not fall back to a system
+                // font with the same family name (CSS Fonts 4 §5), so
+                // this family is skipped regardless of fetch outcome.
+                continue;
             } else {
                 // local font
-                auto fm = selectedWebFont->localFontName()->toUTF8NonGCString();
-                std::transform(fm.begin(), fm.end(), fm.begin(), tolower);
+                auto localFm =
+                    selectedWebFont->localFontName()->toUTF8NonGCString();
+                std::transform(localFm.begin(), localFm.end(), localFm.begin(),
+                               tolower);
 
                 auto iter = m_webFontLocalSrcCache.find(cacheStr);
                 if (iter == m_webFontLocalSrcCache.end()) {
-                    face = loadFromPlatform(fm, isGenericName, style, weight);
+                    face =
+                        loadFromPlatform(localFm, isGenericName, style, weight);
                     m_webFontLocalSrcCache.insert(
                         std::make_pair(cacheStr, face));
                 } else {
@@ -304,6 +297,28 @@ Font* FontSelector::loadFont(String* familyNameArray[],
                 if (face) {
                     result->m_fontFaceList->push_back(face);
                 }
+                continue;
+            }
+        }
+
+        // No @font-face rule matches this family — use the system font.
+        bool existInPlatformLayerCache = false;
+        FontFace* face = m_platformFontCache->lookupFaceCache(
+            cacheStr, existInPlatformLayerCache);
+
+        if (existInPlatformLayerCache) {
+            if (face) {
+                result->m_fontFaceList->push_back(face);
+                continue;
+            }
+        } else {
+            face = loadFromPlatform(fm, isGenericName, style, weight);
+            if (face) {
+                m_platformFontCache->insertFaceCache(cacheStr, face);
+                result->m_fontFaceList->push_back(face);
+                continue;
+            } else {
+                m_platformFontCache->insertFaceCache(cacheStr, nullptr);
             }
         }
     }
