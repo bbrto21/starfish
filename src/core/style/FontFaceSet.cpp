@@ -24,6 +24,7 @@
 #include "core/dom/DOMException.h"
 #include "core/dom/Event.h"
 #include "binding/ScriptWrappable.h"
+#include "core/page/BrowsingContext.h"
 #include "core/page/Window.h"
 #include "core/style/CSSStyleDeclaration.h"
 #include "core/style/WebFont.h"
@@ -37,6 +38,13 @@ DEFINE_EVENT_LISTENER(FontFaceSet, loadingerror);
 
 static bool isLoadingState(Resource* resource)
 {
+    // A FontResource in BeforeSend that was never requested is not loading —
+    // the @font-face was registered but never matched during font selection.
+    // css-font-loading §fontfaceset-loading: "unloaded" is not "loading".
+    if (resource->state() == Resource::State::BeforeSend &&
+        !resource->isRequested()) {
+        return false;
+    }
     return resource->state() == Resource::State::BeforeSend ||
            resource->state() == Resource::State::Receiving;
 }
@@ -69,7 +77,21 @@ bool FontFaceSet::hasLoadingFonts() const
 // https://drafts.csswg.org/css-font-loading/#fontfaceset-pending-on-the-environment
 bool FontFaceSet::isPendingOnTheEnvironment() const
 {
-    return !m_document->domContentLoadedFired();
+    if (!m_document->domContentLoadedFired()) {
+        return true;
+    }
+    // Also pending while style recalc or frame tree build is scheduled —
+    // @font-face resources are created during style resolution, so until
+    // the first layout pass completes we cannot know whether font loads
+    // will be triggered. css-font-loading §fontfaceset-pending-on-the-
+    // environment: "there are pending layout operations".
+    auto* bc = m_document->browsingContext();
+    if (bc && (bc->needsStyleRecalc() ||
+               bc->needsStyleRecalcForWholeDocument() ||
+               bc->needsFrameTreeBuild())) {
+        return true;
+    }
+    return false;
 }
 
 String* FontFaceSet::status() const

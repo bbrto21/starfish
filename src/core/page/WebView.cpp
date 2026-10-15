@@ -42,6 +42,7 @@
 #include "core/modules/canvas/Canvas.h"
 #include "core/modules/canvas/Compositor.h"
 #include "core/modules/message_loop/Timer.h"
+#include "core/style/FontFaceSet.h"
 #include "core/modules/message_loop/MessageLoop.h"
 #include "core/modules/threading/Thread.h"
 #include "core/modules/threading/ThreadPool.h"
@@ -1585,6 +1586,17 @@ void WebView::layoutIfNeeded(bool shouldCareStackingContextNow)
 
     if (didLayout || didStackingContextJob) {
         clearStack<DEFAULT_CLEAR_STACK_SIZE>();
+    }
+
+    // After layout, style/layout pending flags are cleared — re-evaluate
+    // font loading state so ready can resolve if no fonts are loading.
+    if (auto fonts = m_topLevelBrowsingContext->document()->fontsIfCreated()) {
+        fonts.value()->didChangeFontLoadingState();
+    }
+    for (size_t i = 0; i < browsingContextsNeedsLayout.size(); i++) {
+        if (auto fonts = browsingContextsNeedsLayout[i]->document()->fontsIfCreated()) {
+            fonts.value()->didChangeFontLoadingState();
+        }
     }
 }
 
