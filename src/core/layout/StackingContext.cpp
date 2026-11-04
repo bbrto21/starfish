@@ -1285,6 +1285,25 @@ static void computeVisibleRect(StackingContext* source, StackingContext* c,
     }
 }
 
+// A buffer's rect is both where its content is painted from and where the
+// compositor places it. Text widens its contribution by a fractional glyph
+// overhang allowance (InlineTextBox::computeVisibleRect), so a rect whose edge
+// is set by text has a fractional origin: every edge inside the buffer is then
+// painted at a sub-pixel phase the non-composited path never produces, and the
+// finished buffer is resampled again at composite time. Snap outward to whole
+// pixels so a layer paints and composites at the same phase as direct painting.
+static void snapVisibleRectToPixels(LayoutRect& rect)
+{
+    if (rect.isEmpty()) {
+        return;
+    }
+    LayoutUnit minX(rect.x().floor());
+    LayoutUnit minY(rect.y().floor());
+    LayoutUnit maxX(rect.maxX().ceil());
+    LayoutUnit maxY(rect.maxY().ceil());
+    rect = LayoutRect(minX, minY, maxX - minX, maxY - minY);
+}
+
 static CanvasSurface::CanvasSurfaceFlag computeSurfaceFlag(StackingContext* sc,
                                                            size_t tileWidth,
                                                            size_t tileHeight)
@@ -1485,6 +1504,8 @@ void StackingContext::applyStackingContextProperties(
                     m_rareData->m_visibleRect.unite(scrollRect);
                 }
             }
+
+            snapVisibleRectToPixels(m_rareData->m_visibleRect);
 
             if (m_owner->isRootElement()) {
                 if (m_rareData->m_visibleRect.x() < 0) {
