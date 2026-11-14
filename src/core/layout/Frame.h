@@ -2352,6 +2352,7 @@ public:
         }
 
         return (display == DisplayValue::BlockDisplayValue) ||
+               (display == DisplayValue::FlowRootDisplayValue) ||
                (display == DisplayValue::ListItemDisplayValue) ||
                (display == DisplayValue::TableDisplayValue) ||
                (display == DisplayValue::TableCaptionDisplayValue) ||

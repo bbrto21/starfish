@@ -1070,6 +1070,7 @@ public:
     {
         switch (display()) {
         case BlockDisplayValue:
+        case FlowRootDisplayValue:
         case ListItemDisplayValue:
         case InlineListItemDisplayValue:
         case InlineBlockDisplayValue:
