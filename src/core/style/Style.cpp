@@ -18984,7 +18984,9 @@ bool CSSStyleValuePair::updateValueLayerTransitionTimingFunction(
 bool CSSStyleValuePair::updateValueLayerTransitionDelay(
     const CSSTokenVector& tokens)
 {
-    return updateValueTime(tokens, 0);
+    // css-transitions-1 #transition-delay-property: a negative delay starts
+    // the transition part-way through.
+    return updateValueTime(tokens, CSSPropertyParser::AllowNegative);
 }
 
 bool CSSStyleValuePair::updateValueUnitAnimationTimingFunction(
