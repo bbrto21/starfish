@@ -2622,7 +2622,7 @@ String* CSSStyleValuePair::toString() const
     case CSSStyleValuePair::ValueKind::TextOverflowValueKind: {
         auto value = textOverflowValue();
         if (value.hasClipValue()) {
-            return String::fromUTF8("auto");
+            return String::fromUTF8("clip");
         } else if (value.hasEllipsisValue()) {
             return String::fromUTF8("ellipsis");
         } else if (value.hasStringValue()) {
