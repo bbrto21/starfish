@@ -4585,9 +4585,14 @@ void StyleResolver::applyProperty(Element* element,
                         sd.setLengths((*shadow)[j].multiValue());
                     } break;
                     case CSSStyleValuePair::ValueKind::NamedColorValueKind: {
-                        Unit::Color color = NamedColor::namedColorToColor(
-                            (*shadow)[j].namedColorValue());
-                        sd.setColor(color);
+                        // A shadow without a color takes the element's
+                        // color where it is used, which is what
+                        // currentcolor asks for (css-color-4 #currentcolor)
+                        NamedColor::NamedColorValue named =
+                            (*shadow)[j].namedColorValue();
+                        if (named != NamedColor::currentColor) {
+                            sd.setColor(NamedColor::namedColorToColor(named));
+                        }
                     } break;
                     case CSSStyleValuePair::ValueKind::ColorValueKind: {
                         Unit::Color color = (*shadow)[j].colorValue();
@@ -4635,9 +4640,14 @@ void StyleResolver::applyProperty(Element* element,
                         sd.setLengths((*shadow)[j].multiValue());
                     } break;
                     case CSSStyleValuePair::ValueKind::NamedColorValueKind: {
-                        Unit::Color color = NamedColor::namedColorToColor(
-                            (*shadow)[j].namedColorValue());
-                        sd.setColor(color);
+                        // A shadow without a color takes the element's
+                        // color where it is used, which is what
+                        // currentcolor asks for (css-color-4 #currentcolor)
+                        NamedColor::NamedColorValue named =
+                            (*shadow)[j].namedColorValue();
+                        if (named != NamedColor::currentColor) {
+                            sd.setColor(NamedColor::namedColorToColor(named));
+                        }
                     } break;
                     case CSSStyleValuePair::ValueKind::ColorValueKind: {
                         Unit::Color color = (*shadow)[j].colorValue();
