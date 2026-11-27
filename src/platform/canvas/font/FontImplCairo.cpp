@@ -95,6 +95,71 @@ void FontFaceImplCairo::clearNativeResources()
     GlyphIndexCache().swap(m_glyphIndexCache);
 }
 
+// The faces of the system font files, shared by every view of a thread.
+// A view that opened its own made each view pay for the same file again,
+// and a closed view's faces outlived it for as long as cairo held on to
+// the scaled fonts drawn with them. The collector's heap is per thread,
+// hence one map per thread; it lives while the thread has a view.
+typedef GCUnorderedMap<UTF8StringDataNonGCStd, FontFaceImplCairo*>
+    SystemFontFaceMap;
+// Trivially destructible, so the thread's exit has nothing to run.
+static thread_local SystemFontFaceMap* g_systemFontFaces;
+static thread_local size_t g_systemFontFaceUserCount;
+
+PlatformFontSelectorImplCairo::PlatformFontSelectorImplCairo(WebView* wv)
+    : PlatformFontSelector(wv)
+{
+    if (!g_freeTypeInstance) {
+        FT_Error error;
+        error = FT_Init_FreeType(&g_freeTypeInstance);
+        CHECK_ERROR;
+    }
+    if (g_systemFontFaceUserCount++ == 0) {
+        // Uncollectable: thread-local storage is not a root of its own.
+        g_systemFontFaces = new (NoGC) SystemFontFaceMap();
+    }
+}
+
+PlatformFontSelectorImplCairo::~PlatformFontSelectorImplCairo()
+{
+    if (--g_systemFontFaceUserCount == 0) {
+        delete g_systemFontFaces;
+        g_systemFontFaces = nullptr;
+    }
+}
+
+PlatformFontFace* PlatformFontSelectorImplCairo::loadFontFace(
+    const UTF8StringDataNonGCStd& path)
+{
+    auto iter = g_systemFontFaces->find(path);
+    if (iter != g_systemFontFaces->end()) {
+        return iter->second;
+    }
+
+    FT_Face face;
+    hb_font_t* hbFace;
+
+    FT_Error error;
+    error = FT_New_Face(g_freeTypeInstance, (char*)path.data(), 0, &face);
+    CHECK_ERROR;
+    FT_Set_Pixel_Sizes(face, 0, 16);
+    hbFace = hb_ft_font_create(face, [](void* userData) {});
+    STARFISH_LOG_INFO("load system font %s %p %p", path.data(), face, hbFace);
+
+    auto impl = FontFaceImplCairo::createWithPath(face, hbFace, path);
+    g_systemFontFaces->insert(std::make_pair(path, impl));
+    return impl;
+}
+
+void PlatformFontSelectorImplCairo::clearCache()
+{
+    for (auto& e : *g_systemFontFaces) {
+        if (e.second) {
+            e.second->clearCache();
+        }
+    }
+}
+
 PlatformFontSelector* PlatformFontSelector::create(WebView* webView)
 {
     return new PlatformFontSelectorImplCairo(webView);

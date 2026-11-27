@@ -304,19 +304,8 @@ public:
 
 class PlatformFontSelectorImplCairo : public PlatformFontSelector {
 public:
-    PlatformFontSelectorImplCairo(WebView* wv)
-        : PlatformFontSelector(wv)
-    {
-        if (!g_freeTypeInstance) {
-            FT_Error error;
-            error = FT_Init_FreeType(&g_freeTypeInstance);
-            CHECK_ERROR;
-        }
-    }
-
-    ~PlatformFontSelectorImplCairo()
-    {
-    }
+    PlatformFontSelectorImplCairo(WebView* wv);
+    ~PlatformFontSelectorImplCairo();
 
     virtual UTF8StringDataNonGCStd findFont(
         const UTF8StringDataNonGCStd& familyName, bool isGenericName,
@@ -465,39 +454,8 @@ public:
     }
 
     virtual PlatformFontFace* loadFontFace(
-        const UTF8StringDataNonGCStd& path) override
-    {
-        auto iter = m_fontPathToFace.find(path);
-        if (iter != m_fontPathToFace.end()) {
-            return iter->second;
-        }
-
-        FT_Face face;
-        hb_font_t* hbFace;
-
-        FT_Error error;
-        error = FT_New_Face(g_freeTypeInstance, (char*)path.data(), 0, &face);
-        CHECK_ERROR;
-        FT_Set_Pixel_Sizes(face, 0, 16);
-        hbFace = hb_ft_font_create(face, [](void* userData) {});
-        STARFISH_LOG_INFO("load system font %s %p %p", path.data(), face,
-                          hbFace);
-
-        auto impl = FontFaceImplCairo::createWithPath(face, hbFace, path);
-        m_fontPathToFace.insert(std::make_pair(path, impl));
-        return impl;
-    }
-
-    virtual void clearCache()
-    {
-        for (auto& e : m_fontPathToFace) {
-            if (e.second) {
-                e.second->clearCache();
-            }
-        }
-    }
-
-    GCUnorderedMap<UTF8StringDataNonGCStd, FontFaceImplCairo*> m_fontPathToFace;
+        const UTF8StringDataNonGCStd& path) override;
+    virtual void clearCache() override;
 };
 
 class PlatformFontCacheImplCairo : public PlatformFontCache {

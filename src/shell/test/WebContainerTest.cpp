@@ -24,7 +24,10 @@
 #include "LWEWebView.h"
 #include "Window.h"
 
+#include <cstring>
+#include <fstream>
 #include <iostream>
+#include <string>
 
 namespace StarfishShell {
 
@@ -141,6 +144,57 @@ TEST_F(WebContainerCreationTest, CreateGL)
     m_lwe = LWE::WebContainer::CreateGL(args, config);
     EXPECT_TRUE(m_lwe != nullptr);
 }
+
+#if defined(__linux__)
+// The font files this process has mapped; FreeType maps the file of each
+// face it opens.
+static size_t countMappedFontFiles()
+{
+    size_t count = 0;
+    std::ifstream maps("/proc/self/maps");
+    std::string line;
+    while (std::getline(maps, line)) {
+        for (const char* suffix : { ".ttf", ".otf", ".ttc" }) {
+            size_t length = strlen(suffix);
+            if (line.size() >= length &&
+                !line.compare(line.size() - length, length, suffix)) {
+                count++;
+                break;
+            }
+        }
+    }
+    return count;
+}
+
+// A view opens no face of its own for a system font file another view of
+// the thread has open, and a closed view leaves none behind: the second
+// view below draws the same text with the faces of the first.
+TEST_F(WebContainerCreationTest, ViewsShareSystemFontFaces)
+{
+    const char* page = "<p style='font-family: serif'>serif <b>bold</b></p>"
+                       "<p style='font-family: sans-serif'>sans <i>it</i></p>"
+                       "<p style='font-family: monospace'>mono</p>";
+    m_lwe = LWE::WebContainer::CreateGL(getWebContainerArgs(),
+                                        getRendererConfig(m_window));
+    ASSERT_TRUE(m_lwe);
+    m_lwe->LoadData(page);
+    m_window->appLoop()->start(1);
+    size_t withOneView = countMappedFontFiles();
+    ASSERT_GT(withOneView, 0u);
+
+    LWE::WebContainer* second = LWE::WebContainer::CreateGL(
+        getWebContainerArgs(), getRendererConfig(m_window));
+    ASSERT_TRUE(second);
+    second->LoadData(page);
+    m_window->appLoop()->start(1);
+    EXPECT_EQ(withOneView, countMappedFontFiles());
+
+    m_lwe->Destroy();
+    m_lwe = second;
+    m_window->appLoop()->start(1);
+    EXPECT_EQ(withOneView, countMappedFontFiles());
+}
+#endif
 
 #if defined(STARFISH_ENABLE_WEBGL)
 TEST_F(WebContainerCreationTest, WebGLAfterRecreatingContainer)
