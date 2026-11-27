@@ -66,6 +66,26 @@ TEST(ShellTest, CreateDestroyTest)
 }
 
 #if defined(SHELL_ENABLE_BROWSER)
+// --screen-shot makes the engine exit the process and leaves its settings
+// in the environment, hence the fresh process.
+TEST(ShellBrowserDeathTest, ScreenShot)
+{
+    const char* path = "/tmp/starfish_shell_browser_test.png";
+    unlink(path);
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+    EXPECT_EXIT(
+        {
+            runShell({ "Starfish", "browser",
+                       "data:text/html,<body>screenshot</body>",
+                       "--screen-shot=/tmp/starfish_shell_browser_test.png",
+                       "--width=320", "--height=240", "--timeout=20" });
+            exit(1);
+        },
+        ::testing::ExitedWithCode(0), "");
+    EXPECT_EQ(0, access(path, R_OK));
+    unlink(path);
+}
+
 TEST(ShellTest, BrowserMode)
 {
     EXPECT_EQ(

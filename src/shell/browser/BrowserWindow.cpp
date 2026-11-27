@@ -129,6 +129,8 @@ namespace {
         return modifiers;
     }
 
+    const int kOffScreenPosition = -20000;
+
     bool isPrintableASCII(KeySym keysym)
     {
         return keysym >= 0x20 && keysym <= 0x7e;
@@ -202,7 +204,8 @@ BrowserWindow::~BrowserWindow()
     }
 }
 
-bool BrowserWindow::init(const char* title, unsigned width, unsigned height)
+bool BrowserWindow::init(const char* title, unsigned width, unsigned height,
+                         bool isVisible)
 {
     // The input method follows the user's locale.
     if (!setlocale(LC_ALL, "")) {
@@ -220,9 +223,17 @@ bool BrowserWindow::init(const char* title, unsigned width, unsigned height)
         fprintf(stderr, "Browser: cannot set the X locale modifiers\n");
     }
 
-    m_window =
-        XCreateSimpleWindow(m_display, DefaultRootWindow(m_display), 0, 0,
-                            width, height, 0, 0, WhitePixel(m_display, 0));
+    int position = isVisible ? 0 : kOffScreenPosition;
+    m_window = XCreateSimpleWindow(m_display, DefaultRootWindow(m_display),
+                                   position, position, width, height, 0, 0,
+                                   WhitePixel(m_display, 0));
+    if (!isVisible) {
+        // Keeps a window manager from moving the window back on screen.
+        XSetWindowAttributes attributes = {};
+        attributes.override_redirect = True;
+        XChangeWindowAttributes(m_display, m_window, CWOverrideRedirect,
+                                &attributes);
+    }
     m_width = width;
     m_height = height;
     XSelectInput(m_display, m_window,

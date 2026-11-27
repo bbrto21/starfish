@@ -46,6 +46,8 @@ public:
     struct Options {
         unsigned width = 1280;
         unsigned height = 720;
+        // A hidden window still renders; test runs use it.
+        bool isWindowVisible = true;
         // Where the engine keeps cookies, storage and caches.
         std::string storageDir;
         // One tab per URL, the last one active. A blank tab when empty.

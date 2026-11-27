@@ -267,6 +267,25 @@ TEST_F(BrowserTest, PageFollowsWindowSize)
     }));
 }
 
+TEST_F(BrowserTest, HiddenWindowStillRenders)
+{
+    Browser::Options options;
+    options.width = 400;
+    options.height = 300;
+    options.isWindowVisible = false;
+    options.storageDir = "/tmp/starfish_storage/";
+    options.urls.push_back(colorPage("00ff00"));
+    ASSERT_TRUE(m_browser.init(options));
+    waitForActiveTab();
+
+    XWindowAttributes attributes;
+    XGetWindowAttributes(m_display, m_browser.window().nativeHandle(),
+                         &attributes);
+    EXPECT_LT(attributes.x + attributes.width, 0);
+    EXPECT_TRUE(attributes.override_redirect);
+    EXPECT_EQ("400x300", evaluate("innerWidth + 'x' + innerHeight"));
+}
+
 TEST_F(BrowserTest, CloseRequestEndsTheLoop)
 {
     open("<body></body>");

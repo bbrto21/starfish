@@ -54,7 +54,8 @@ bool Browser::init(const Options& options)
     m_appLoop->init();
 
     m_window.reset(new BrowserWindow(*this));
-    if (!m_window->init("Starfish", options.width, options.height)) {
+    if (!m_window->init("Starfish", options.width, options.height,
+                        options.isWindowVisible)) {
         return false;
     }
     m_compositor.reset(new Compositor());

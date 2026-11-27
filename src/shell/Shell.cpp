@@ -236,8 +236,13 @@ int Shell::runBrowser(int argc, char* argv[])
     init.geometry = { 0, 0, options.width, options.height };
     MiniBrowser::parseArgs(static_cast<int>(miniBrowserArgv.size()),
                            miniBrowserArgv.data(), env, init, settings, others);
+    // Engine options (--screen-shot, --regression-test, ...) work as in
+    // the mini browser.
+    MiniBrowser::setEnvironmentValues(env);
     options.width = init.geometry.width;
     options.height = init.geometry.height;
+    // A screenshot run shows no window either, as in the mini browser.
+    options.isWindowVisible = !env.hideWindow && env.screenShot.empty();
     options.storageDir = others.storageDir.empty()
                              ? MiniBrowser::defaultStorageDir()
                              : others.storageDir;

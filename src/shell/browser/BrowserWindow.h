@@ -69,9 +69,11 @@ public:
     explicit BrowserWindow(Client& client);
     ~BrowserWindow();
 
-    // Creates and shows the window, and starts delivering its events
-    // from the default GLib main context.
-    bool init(const char* title, unsigned width, unsigned height);
+    // Creates and maps the window, and starts delivering its events
+    // from the default GLib main context. A window that is not visible
+    // is placed off screen, where it still renders and takes events.
+    bool init(const char* title, unsigned width, unsigned height,
+              bool isVisible = true);
 
     // The X window id.
     unsigned long nativeHandle() const
