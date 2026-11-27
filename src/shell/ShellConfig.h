@@ -62,6 +62,11 @@
 #define SHELL_CAN_REPLAY_API
 #endif
 
+// `Starfish browser`, the tabbed browser mode under src/shell/browser.
+#if defined(STARFISH_SHELL_BROWSER)
+#define SHELL_ENABLE_BROWSER
+#endif
+
 #if defined(STARFISH_TIZEN)
 #define SHELL_TIZEN
 #endif

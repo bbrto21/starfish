@@ -6,6 +6,15 @@ INCLUDE(${STARFISH_ROOT}/build/starfish_shell_defines.cmake)
 # don't re-append LWE_DEFINITIONS here too, or it ends up duplicated.
 SET_STARFISH_SHELL_DEFINES()
 
+IF (STARFISH_SHELL_BROWSER)
+    # The browser mode drives its own X window, GLib sources and GL
+    # compositing.
+    IF (NOT "${SHELL}" STREQUAL "x11" OR NOT "${BACKEND}" STREQUAL "glib_cairo_gl")
+        MESSAGE (FATAL_ERROR "STARFISH_SHELL_BROWSER needs -DSHELL=x11 -DBACKEND=glib_cairo_gl")
+    ENDIF()
+    SET (STARFISH_SHELL_DEFINES ${STARFISH_SHELL_DEFINES} -DSTARFISH_SHELL_BROWSER)
+ENDIF()
+
 
 SET (STARFISH_SHELL_INCLUDE_DIRS
     ${STARFISH_ROOT}/inc

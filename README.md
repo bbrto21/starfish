@@ -157,6 +157,9 @@ Default values are in **bold**.
   Enable coverage measurements with gcov
 * -DSHELL=[ **x11** | glib_headless ]<br>
   Create an executable build target.
+* -DSTARFISH_SHELL_BROWSER=[ **OFF** | ON ]<br>
+  Build the tabbed browser mode (`Starfish browser`) into the shell. Needs
+  -DSHELL=x11 and -DBACKEND=glib_cairo_gl. CI builds with it.
 * -DCLI=[ **0** | 1 ]<br>
   Build the CLI on Linux. Requires a shell executable and
   -DSTARFISH_ENABLE_CDP=1.

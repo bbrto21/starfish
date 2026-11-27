@@ -60,6 +60,7 @@ ENDIF ()
 OPTION (STARFISH_MEDIA_PLAYBACK_TEST "Build CI-only playback probes and TLS bypass" OFF)
 OPTION (STARFISH_WINDOWS_ENABLE_MULTIMEDIA "Enable multimedia support in the Windows build" ON)
 OPTION (STARFISH_WINDOWS_BUILD_SHELL "Build the minimal Win32 OpenGL shell" OFF)
+OPTION (STARFISH_SHELL_BROWSER "Build the tabbed browser mode (`Starfish browser`) into the x11 shell" OFF)
 
 # Expreimental flags for UWE
 SET (ENABLE_DYNAMIC_LOADER "0" CACHE STRING "ENABLE_DYNAMIC_LOADER")
