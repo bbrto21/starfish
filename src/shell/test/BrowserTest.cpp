@@ -290,6 +290,31 @@ TEST_F(BrowserTest, HiddenWindowStillRenders)
     EXPECT_EQ("400x300", evaluate("innerWidth + 'x' + innerHeight"));
 }
 
+TEST_F(BrowserTest, TabKeepsItsFocusedElementInTheBackground)
+{
+    const char* form =
+        "<body><input id='field'><script>"
+        "field.focus();</script></body>";
+    open(form);
+    TabModel::TabId first = m_browser.tabs().activeTab();
+    sendKey(KeyPress, XK_a);
+    sendKey(KeyRelease, XK_a);
+    ASSERT_TRUE(runUntil([this] { return evaluate("field.value") == "a"; }));
+
+    TabModel::TabId second = newTab(page(form));
+    sendKey(KeyPress, XK_x);
+    sendKey(KeyRelease, XK_x);
+    ASSERT_TRUE(runUntil([this] { return evaluate("field.value") == "x"; }));
+
+    // Back in the first tab the caret is still in its field.
+    m_browser.activateTab(first);
+    sendKey(KeyPress, XK_b);
+    sendKey(KeyRelease, XK_b);
+    EXPECT_TRUE(runUntil([this] { return evaluate("field.value") == "ab"; }))
+        << evaluate("field.value");
+    EXPECT_EQ("x", evaluateIn(second, "field.value"));
+}
+
 TEST_F(BrowserTest, CloseRequestEndsTheLoop)
 {
     open("<body></body>");

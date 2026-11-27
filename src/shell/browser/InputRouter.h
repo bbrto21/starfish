@@ -35,8 +35,9 @@ class View;
 class InputRouter {
 public:
     // The views currently shown, the bottom one first (the order they are
-    // composited in). A view that is no longer listed loses the focus and
-    // any pointer press it was holding. Call before destroying a view.
+    // composited in). A view that is no longer listed stops receiving
+    // keys and loses any pointer press it was holding, but its page is not
+    // told that it lost the focus. Call before destroying a view.
     void setVisibleViews(const std::vector<View*>& views);
 
     // The topmost view at a window position, nullptr when there is none.

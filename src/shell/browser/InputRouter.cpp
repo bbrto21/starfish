@@ -41,7 +41,10 @@ void InputRouter::setVisibleViews(const std::vector<View*>& views)
         m_pressedView = nullptr;
     }
     if (m_focusedView && !isVisible(m_focusedView)) {
-        setFocusedView(nullptr);
+        // Not Blur(): the engine forgets which element had the focus
+        // when a view is blurred, and a tab that comes back should still
+        // have the caret where it was.
+        m_focusedView = nullptr;
     }
 }
 
