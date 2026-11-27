@@ -59,6 +59,7 @@ protected:
         options.width = width;
         options.height = height;
         options.storageDir = "/tmp/starfish_storage/";
+        options.hasUI = m_hasUI;
         options.urls.push_back(page(html));
         ASSERT_TRUE(m_browser.init(options));
         waitForActiveTab();
@@ -173,6 +174,8 @@ protected:
 
     Display* m_display = nullptr;
     Browser m_browser;
+    // Most tests are about pages, which then fill the window.
+    bool m_hasUI = false;
 };
 
 TEST_F(BrowserTest, ShowsPageInWindow)
@@ -273,6 +276,7 @@ TEST_F(BrowserTest, HiddenWindowStillRenders)
     options.width = 400;
     options.height = 300;
     options.isWindowVisible = false;
+    options.hasUI = false;
     options.storageDir = "/tmp/starfish_storage/";
     options.urls.push_back(colorPage("00ff00"));
     ASSERT_TRUE(m_browser.init(options));
@@ -481,6 +485,266 @@ TEST_F(BrowserTest, ClosingTheLastTabEndsTheLoop)
     EXPECT_LT(std::chrono::steady_clock::now() - start,
               std::chrono::seconds(5));
     EXPECT_TRUE(m_browser.tabs().tabs().empty());
+}
+
+// The same browser with its tab strip and toolbar, which sit in the top
+// 76 pixels of the window.
+class BrowserUITest : public BrowserTest {
+protected:
+    enum { kUIHeight = 76 };
+
+    BrowserUITest()
+    {
+        m_hasUI = true;
+    }
+
+    void openWithUI(const std::string& url)
+    {
+        Browser::Options options;
+        options.width = 800;
+        options.height = 400;
+        options.storageDir = "/tmp/starfish_storage/";
+        options.urls.push_back(url);
+        ASSERT_TRUE(m_browser.init(options));
+        ASSERT_TRUE(m_browser.uiView());
+        waitForActiveTab();
+        ASSERT_TRUE(waitForUI("tabCount()", "1"));
+    }
+
+    static std::string titledPage(const std::string& title,
+                                  const std::string& color)
+    {
+        return page("<title>" + title +
+                    "</title><body style='margin:0;background:%23" + color +
+                    "'><script>var keys = '';"
+                    "onkeydown = function(e) { keys += e.key; };"
+                    "</script></body>");
+    }
+
+    std::string evaluateUI(const std::string& script)
+    {
+        // Helpers for the expressions the tests ask the UI page.
+        const char* helpers =
+            "function tabCount() {"
+            "  return String(document.querySelectorAll('.tab').length); }"
+            "function activeTitle() {"
+            "  var e = document.querySelector('.tab.active .title');"
+            "  return e ? e.textContent : ''; }"
+            "function center(selector) {"
+            "  var r = document.querySelector(selector)"
+            "      .getBoundingClientRect();"
+            "  return Math.round(r.left + r.width / 2) + ',' +"
+            "      Math.round(r.top + r.height / 2); }";
+        return m_browser.uiView()->container()->EvaluateJavaScript(
+            std::string(helpers) + script);
+    }
+
+    bool waitForUI(const std::string& script, const std::string& expected)
+    {
+        return runUntil([&] { return evaluateUI(script) == expected; }, 5);
+    }
+
+    // A real click in the middle of an element of the UI page.
+    void clickUI(const std::string& selector)
+    {
+        std::string position = evaluateUI("center(\"" + selector + "\")");
+        size_t comma = position.find(',');
+        ASSERT_NE(std::string::npos, comma) << position;
+        int x = std::stoi(position.substr(0, comma));
+        int y = std::stoi(position.substr(comma + 1));
+        sendButton(ButtonPress, Button1, x, y);
+        sendButton(ButtonRelease, Button1, x, y);
+    }
+
+    void press(KeySym keysym, unsigned state = 0)
+    {
+        sendKey(KeyPress, keysym, state);
+        sendKey(KeyRelease, keysym, state);
+    }
+
+    const TabModel::Tab& activeTab()
+    {
+        return m_browser.tabs().tab(m_browser.tabs().activeTab());
+    }
+};
+
+TEST_F(BrowserUITest, ShowsStripAbovePage)
+{
+    std::string url = titledPage("First", "00ff00");
+    openWithUI(url);
+
+    EXPECT_TRUE(waitForUI("activeTitle()", "First"));
+    // The engine reports the URL percent-encoded.
+    EXPECT_EQ(0, activeTab().url.find("data:text/html,"));
+    EXPECT_EQ(activeTab().url, evaluateUI("address.value"));
+    EXPECT_EQ("800x76", evaluateUI("innerWidth + 'x' + innerHeight"));
+    EXPECT_EQ("800x324", evaluate("innerWidth + 'x' + innerHeight"));
+
+    EXPECT_TRUE(runUntil([this] {
+        // The strip's background, then the page from the strip's lower
+        // edge to the bottom of the window.
+        return windowPixel(790, 3) == 0xdee1e6 &&
+               windowPixel(400, kUIHeight + 1) == 0x00ff00 &&
+               windowPixel(400, 399) == 0x00ff00;
+    }));
+}
+
+TEST_F(BrowserUITest, PageSeesPositionsRelativeToItself)
+{
+    openWithUI(
+        page("<body style='margin:0'><script>"
+             "var seen = '';"
+             "onmousedown = function(e) {"
+             "  seen = e.clientX + ',' + e.clientY; };"
+             "</script></body>"));
+
+    sendButton(ButtonPress, Button1, 120, kUIHeight + 80);
+    sendButton(ButtonRelease, Button1, 120, kUIHeight + 80);
+    EXPECT_TRUE(runUntil([this] { return evaluate("seen") == "120,80"; }))
+        << evaluate("seen");
+}
+
+TEST_F(BrowserUITest, NewTabButtonOpensTabAndFocusesAddress)
+{
+    openWithUI(titledPage("First", "00ff00"));
+    TabModel::TabId first = m_browser.tabs().activeTab();
+
+    clickUI("#new-tab");
+    ASSERT_TRUE(waitForUI("tabCount()", "2"));
+    EXPECT_NE(first, m_browser.tabs().activeTab());
+    EXPECT_TRUE(waitForUI("document.activeElement.id", "address"));
+    EXPECT_EQ("", evaluateUI("address.value"));
+
+    // Typing goes to the address bar, not to a page.
+    press(XK_a);
+    press(XK_b);
+    EXPECT_TRUE(waitForUI("address.value", "ab"))
+        << evaluateUI("address.value");
+    EXPECT_EQ("", evaluateIn(first, "keys"));
+}
+
+TEST_F(BrowserUITest, AddressBarNavigatesActiveTab)
+{
+    openWithUI(titledPage("First", "00ff00"));
+
+    press(XK_l, ControlMask);
+    ASSERT_TRUE(waitForUI("document.activeElement.id", "address"));
+    std::string target = titledPage("Second", "0000ff");
+    evaluateUI("address.value = \"" + target + "\"");
+    press(XK_Return);
+
+    EXPECT_TRUE(runUntil([&] { return activeTab().title == "Second"; }));
+    EXPECT_TRUE(waitForUI("activeTitle()", "Second"));
+    EXPECT_TRUE(waitForUI("address.value", activeTab().url));
+    EXPECT_TRUE(runUntil([this] { return windowPixel(400, 300) == 0x0000ff; }));
+
+    // The page has the keyboard again.
+    press(XK_x);
+    EXPECT_TRUE(runUntil([this] { return evaluate("keys") == "x"; }))
+        << evaluate("keys");
+}
+
+TEST_F(BrowserUITest, TypedHostNameGetsAScheme)
+{
+    openWithUI(titledPage("First", "00ff00"));
+
+    press(XK_l, ControlMask);
+    ASSERT_TRUE(waitForUI("document.activeElement.id", "address"));
+    evaluateUI("address.value = 'host.invalid/path'");
+    press(XK_Return);
+
+    EXPECT_TRUE(runUntil([&] {
+        return activeTab().url == "http://host.invalid/path";
+    })) << activeTab().url;
+}
+
+TEST_F(BrowserUITest, TabStripSwitchesAndClosesTabs)
+{
+    openWithUI(titledPage("First", "ff0000"));
+    TabModel::TabId first = m_browser.tabs().activeTab();
+    TabModel::TabId second = newTab(titledPage("Second", "0000ff"));
+    ASSERT_TRUE(waitForUI("tabCount()", "2"));
+    ASSERT_TRUE(waitForUI("activeTitle()", "Second"));
+
+    clickUI(".tab[data-tab='" + std::to_string(first) + "'] .title");
+    EXPECT_TRUE(
+        runUntil([&] { return m_browser.tabs().activeTab() == first; }));
+    EXPECT_TRUE(waitForUI("activeTitle()", "First"));
+    EXPECT_TRUE(runUntil([this] { return windowPixel(400, 300) == 0xff0000; }));
+
+    clickUI(".tab[data-tab='" + std::to_string(first) + "'] .close");
+    EXPECT_TRUE(runUntil([&] { return !m_browser.tabs().hasTab(first); }));
+    EXPECT_EQ(second, m_browser.tabs().activeTab());
+    EXPECT_TRUE(waitForUI("tabCount()", "1"));
+    EXPECT_TRUE(waitForUI("activeTitle()", "Second"));
+    EXPECT_TRUE(runUntil([this] { return windowPixel(400, 300) == 0x0000ff; }));
+}
+
+TEST_F(BrowserUITest, BackAndForwardButtons)
+{
+    openWithUI(titledPage("First", "ff0000"));
+    EXPECT_EQ("true", evaluateUI("String(back.disabled)"));
+
+    m_browser.activeView()->container()->LoadURL(
+        titledPage("Second", "0000ff"));
+    ASSERT_TRUE(runUntil([&] { return activeTab().title == "Second"; }));
+    ASSERT_TRUE(waitForUI("String(back.disabled)", "false"));
+    EXPECT_EQ("true", evaluateUI("String(forward.disabled)"));
+
+    clickUI("#back");
+    EXPECT_TRUE(runUntil([&] { return activeTab().title == "First"; }))
+        << activeTab().title;
+    EXPECT_EQ("First", evaluate("document.title"));
+    EXPECT_TRUE(runUntil([this] { return windowPixel(400, 300) == 0xff0000; }));
+    EXPECT_TRUE(waitForUI("String(forward.disabled)", "false"));
+    EXPECT_TRUE(waitForUI("String(back.disabled)", "true"));
+
+    clickUI("#forward");
+    EXPECT_TRUE(runUntil([&] { return activeTab().title == "Second"; }))
+        << activeTab().title;
+    EXPECT_TRUE(runUntil([this] { return windowPixel(400, 300) == 0x0000ff; }));
+}
+
+TEST_F(BrowserUITest, ReloadButton)
+{
+    openWithUI(titledPage("First", "ff0000"));
+    evaluate("document.title = 'Changed'; window.marker = 1");
+
+    clickUI("#reload");
+    EXPECT_TRUE(runUntil([this] {
+        return evaluate("String(window.marker) + document.title") ==
+               "undefinedFirst";
+    })) << evaluate("String(window.marker) + document.title");
+}
+
+TEST_F(BrowserUITest, StripFollowsWindowWidth)
+{
+    openWithUI(titledPage("First", "00ff00"));
+
+    XResizeWindow(m_display, m_browser.window().nativeHandle(), 1000, 500);
+    XFlush(m_display);
+    EXPECT_TRUE(waitForUI("innerWidth + 'x' + innerHeight", "1000x76"));
+    EXPECT_TRUE(runUntil([this] {
+        return evaluate("innerWidth + 'x' + innerHeight") == "1000x424" &&
+               windowPixel(990, 3) == 0xdee1e6 &&
+               windowPixel(990, 490) == 0x00ff00;
+    }));
+}
+
+TEST_F(BrowserUITest, StripDoesNotNavigateAway)
+{
+    openWithUI(titledPage("First", "00ff00"));
+
+    evaluateUI("location.href = 'about:blank'");
+    runUntil([] { return false; }, 0.5);
+    EXPECT_EQ("1", evaluateUI("tabCount()"));
+}
+
+TEST_F(BrowserUITest, PageCannotReachShellCommands)
+{
+    openWithUI(titledPage("First", "00ff00"));
+    EXPECT_EQ("undefined", evaluate("typeof shell"));
+    EXPECT_EQ("object", evaluateUI("typeof shell"));
 }
 
 } // namespace StarfishShell

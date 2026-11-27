@@ -26,10 +26,35 @@
 #include "AppLoop.h"
 #include "LWEWebView.h"
 
+#include <climits>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <unistd.h>
+
 namespace StarfishShell {
 
+namespace {
+
+    // The height of browser/ui/index.html: its tab row and its toolbar.
+    const unsigned kUIHeight = 76;
+
+    bool hasScheme(const std::string& text)
+    {
+        for (const char* scheme : { "about:", "data:", "file:", "blob:" }) {
+            if (text.compare(0, strlen(scheme), scheme) == 0) {
+                return true;
+            }
+        }
+        return text.find("://") != std::string::npos;
+    }
+
+} // namespace
+
 Browser::Browser()
+    : m_uiChannel(*this)
 {
+    m_tabs.setObserver(this);
 }
 
 Browser::~Browser()
@@ -38,6 +63,7 @@ Browser::~Browser()
     // the window it draws into.
     m_inputRouter.setVisibleViews({});
     m_views.clear();
+    m_uiView.reset();
     m_compositor.reset();
     m_window.reset();
     if (m_isEngineInitialized) {
@@ -68,6 +94,10 @@ bool Browser::init(const Options& options)
                          LWE::InitializeOption::None);
     m_isEngineInitialized = true;
 
+    if (options.hasUI && !createUIView(options.uiDir)) {
+        return false;
+    }
+
     if (options.urls.empty()) {
         return newTab("about:blank") != TabModel::kNoTab;
     }
@@ -89,6 +119,62 @@ void Browser::quit()
     m_appLoop->stop();
 }
 
+std::string Browser::findUIDirectory()
+{
+    char executable[PATH_MAX];
+    ssize_t length =
+        readlink("/proc/self/exe", executable, sizeof(executable) - 1);
+    if (length <= 0) {
+        return std::string();
+    }
+    // The executable sits a few levels into the build directory of its
+    // source tree; walk up until the sources show up.
+    std::string directory(executable, length);
+    size_t slash;
+    while ((slash = directory.rfind('/')) != std::string::npos && slash > 0) {
+        directory.erase(slash);
+        std::string candidate = directory + "/src/shell/browser/ui";
+        if (access((candidate + "/index.html").c_str(), R_OK) == 0) {
+            return candidate;
+        }
+    }
+    return std::string();
+}
+
+bool Browser::createUIView(const std::string& uiDir)
+{
+    std::string directory = uiDir.empty() ? findUIDirectory() : uiDir;
+    std::string page = directory + "/index.html";
+    char resolved[PATH_MAX];
+    if (directory.empty() || !realpath(page.c_str(), resolved)) {
+        fprintf(stderr,
+                "Browser: cannot find the UI page%s%s; pass --ui-dir=<path> "
+                "or --no-ui\n",
+                directory.empty() ? "" : " in ", directory.c_str());
+        return false;
+    }
+    std::string url = std::string("file://") + resolved;
+
+    m_uiView.reset(new View(*m_compositor));
+    if (!m_uiView->init(uiRect(), [this](View*) { composite(); })) {
+        return false;
+    }
+    LWE::WebContainer* container = m_uiView->container();
+    m_uiChannel.connect(container);
+    // The UI view shows the UI page and nothing else.
+    container->RegisterShouldOverrideUrlLoadingHandler(
+        [url](LWE::WebContainer*, const std::string& target) {
+            return target != url;
+        });
+    container->RegisterOnPageLoadedHandler(
+        [this](LWE::WebContainer*, const std::string&) {
+            m_uiChannel.setReady(true);
+            m_uiChannel.sendTabsChanged(m_tabs);
+        });
+    container->LoadURL(url);
+    return true;
+}
+
 TabModel::TabId Browser::newTab(const std::string& url)
 {
     std::unique_ptr<View> view(new View(*m_compositor));
@@ -108,12 +194,14 @@ TabModel::TabId Browser::newTab(const std::string& url)
         [this, tab](LWE::WebContainer*, const std::string& url) {
             m_tabs.setURL(tab, url);
             m_tabs.setLoading(tab, true);
+            updateHistoryState(tab);
         });
     container->RegisterOnPageLoadedHandler(
         [this, tab](LWE::WebContainer* container, const std::string& url) {
             m_tabs.setURL(tab, url);
             m_tabs.setTitle(tab, container->GetTitle());
             m_tabs.setLoading(tab, false);
+            updateHistoryState(tab);
         });
     container->RegisterOnShowSoftwareKeyboardIfPossibleHandler(
         [this](LWE::WebContainer*) { m_window->setInputMethodActive(true); });
@@ -173,11 +261,25 @@ View* Browser::activeView()
     return viewOf(m_tabs.activeTab());
 }
 
+View::Rect Browser::uiRect() const
+{
+    View::Rect rect;
+    rect.width = m_window->width();
+    rect.height = kUIHeight;
+    return rect;
+}
+
 View::Rect Browser::pageRect() const
 {
     View::Rect rect;
     rect.width = m_window->width();
     rect.height = m_window->height();
+    if (m_uiView) {
+        // Pages get what the UI leaves; a window shorter than the UI
+        // still gives them one row to render into.
+        rect.y = kUIHeight;
+        rect.height = rect.height > kUIHeight ? rect.height - kUIHeight : 1;
+    }
     return rect;
 }
 
@@ -187,7 +289,84 @@ std::vector<View*> Browser::visibleViews()
     if (View* view = activeView()) {
         views.push_back(view);
     }
+    if (m_uiView) {
+        views.push_back(m_uiView.get());
+    }
     return views;
+}
+
+void Browser::focusAddress()
+{
+    if (m_uiView) {
+        m_inputRouter.setFocusedView(m_uiView.get());
+        m_uiChannel.sendFocusAddress();
+    }
+}
+
+void Browser::updateHistoryState(TabModel::TabId tab)
+{
+    if (View* view = viewOf(tab)) {
+        m_tabs.setHistoryState(tab, view->container()->CanGoBack(),
+                               view->container()->CanGoForward());
+    }
+}
+
+void Browser::tabsChanged()
+{
+    m_uiChannel.sendTabsChanged(m_tabs);
+}
+
+void Browser::tabUpdated(const TabModel::Tab& tab)
+{
+    m_uiChannel.sendTabUpdated(tab);
+}
+
+void Browser::uiRequestedNewTab()
+{
+    newTab("about:blank");
+    focusAddress();
+}
+
+void Browser::uiRequestedCloseTab(TabModel::TabId tab)
+{
+    closeTab(tab);
+}
+
+void Browser::uiRequestedActivateTab(TabModel::TabId tab)
+{
+    activateTab(tab);
+}
+
+void Browser::uiRequestedNavigate(const std::string& text)
+{
+    View* view = activeView();
+    if (!view) {
+        return;
+    }
+    // Typed text without a scheme is taken as a host name.
+    view->container()->LoadURL(hasScheme(text) ? text : "http://" + text);
+    m_inputRouter.setFocusedView(view);
+}
+
+void Browser::uiRequestedGoBack()
+{
+    if (View* view = activeView()) {
+        view->container()->GoBack();
+    }
+}
+
+void Browser::uiRequestedGoForward()
+{
+    if (View* view = activeView()) {
+        view->container()->GoForward();
+    }
+}
+
+void Browser::uiRequestedReload()
+{
+    if (View* view = activeView()) {
+        view->container()->Reload();
+    }
 }
 
 void Browser::showActiveTab()
@@ -239,7 +418,8 @@ bool Browser::handleCommandKey(LWE::KeyValue key, bool isPressed,
         NewTab,
         CloseTab,
         NextTab,
-        PreviousTab
+        PreviousTab,
+        FocusAddress
     } command = NoCommand;
     bool isShiftHeld = modifiers & BrowserWindow::ShiftModifier;
     switch (static_cast<int>(key)) {
@@ -250,6 +430,10 @@ bool Browser::handleCommandKey(LWE::KeyValue key, bool isPressed,
     case 'w':
     case 'W':
         command = CloseTab;
+        break;
+    case 'l':
+    case 'L':
+        command = FocusAddress;
         break;
     case LWE::KeyValue::TabKey:
         command = isShiftHeld ? PreviousTab : NextTab;
@@ -269,7 +453,10 @@ bool Browser::handleCommandKey(LWE::KeyValue key, bool isPressed,
     }
     switch (command) {
     case NewTab:
-        newTab("about:blank");
+        uiRequestedNewTab();
+        break;
+    case FocusAddress:
+        focusAddress();
         break;
     case CloseTab:
         closeTab(m_tabs.activeTab());
@@ -288,6 +475,9 @@ bool Browser::handleCommandKey(LWE::KeyValue key, bool isPressed,
 
 void Browser::windowResized(unsigned, unsigned)
 {
+    if (m_uiView) {
+        m_uiView->setRect(uiRect());
+    }
     // Tabs in the background catch up when they are shown.
     if (View* view = activeView()) {
         view->setRect(pageRect());

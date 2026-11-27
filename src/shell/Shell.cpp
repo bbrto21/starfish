@@ -239,6 +239,14 @@ int Shell::runBrowser(int argc, char* argv[])
     // Engine options (--screen-shot, --regression-test, ...) work as in
     // the mini browser.
     MiniBrowser::setEnvironmentValues(env);
+    // The options only the browser mode has.
+    for (int i = firstOption; i < argc; i++) {
+        if (strcmp(argv[i], "--no-ui") == 0) {
+            options.hasUI = false;
+        } else if (strncmp(argv[i], "--ui-dir=", 9) == 0) {
+            options.uiDir = argv[i] + 9;
+        }
+    }
     options.width = init.geometry.width;
     options.height = init.geometry.height;
     // A screenshot run shows no window either, as in the mini browser.
@@ -346,8 +354,8 @@ void Shell::printUsage()
     puts("  ./Starfish create-destroy-test {repeat-count} {interval} {URL}");
 #if defined(SHELL_ENABLE_BROWSER)
     puts(
-        "  ./Starfish browser [URL...] [--width= --height= --timeout= "
-        "--storage-dir=]");
+        "  ./Starfish browser [URL...] [options] [--no-ui] "
+        "[--ui-dir=<path>]");
 #endif
 #if defined(STARFISH_ENABLE_TEST)
     puts("  ./Starfish replay <recording.jsonl> [--speed=<factor>] [options]");

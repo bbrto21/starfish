@@ -197,16 +197,24 @@ out
 ./out/release/lightweight-web-engine 'html/file/path'
 ```
 
-A shell built with `-DSTARFISH_SHELL_BROWSER=ON` also starts as a browser:
+A shell built with `-DSTARFISH_SHELL_BROWSER=ON` also starts as a tabbed
+browser:
 
 ```sh
-./out/release/lightweight-web-engine browser [URL...] [--width=<px>] [--height=<px>] [--timeout=<sec>] [--storage-dir=<path>]
+./out/release/lightweight-web-engine browser [URL...] [options]
 ```
 
 In this mode the shell owns the window and its input, and each page is an
 `LWE::WebContainer` that renders into a texture the shell composites
-(`src/shell/browser`). Each URL opens in its own tab. There is no tab strip
-yet; tabs are driven from the keyboard:
+(`src/shell/browser`). Each URL opens in its own tab. The options of the
+plain shell apply (`--width`, `--height`, `--timeout`, `--storage-dir`,
+`--hide-window`, `--screen-shot`, ...), plus:
+
+* `--no-ui`: no tab strip or toolbar; the page fills the window. Meant for
+  test runners.
+* `--ui-dir=<path>`: where to read the tab strip page from. The default is
+  `src/shell/browser/ui` of the source tree the binary was built in, read
+  at start-up, so an edit there needs no rebuild.
 
 | Key | Action |
 |---|---|
@@ -214,6 +222,7 @@ yet; tabs are driven from the keyboard:
 | Ctrl+W | Close the active tab; closing the last one exits |
 | Ctrl+Tab, Ctrl+PageDown | Next tab |
 | Ctrl+Shift+Tab, Ctrl+PageUp | Previous tab |
+| Ctrl+L | Move to the address bar |
 
 Add `--headless` to run without a window, display or GPU: layout,
 scripting, input, accessibility and CDP work, but nothing is painted (see

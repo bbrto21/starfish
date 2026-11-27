@@ -1,0 +1,104 @@
+/* The view is kUIHeight (Browser.cpp) pixels high: 36px of tabs, 40px of
+   toolbar. */
+html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #dee1e6;
+    font: 13px sans-serif;
+    color: #202124;
+}
+
+#tab-row {
+    display: flex;
+    height: 36px;
+    box-sizing: border-box;
+    padding: 6px 6px 0 6px;
+}
+
+#tabs {
+    display: flex;
+    min-width: 0;
+}
+
+.tab {
+    display: flex;
+    align-items: center;
+    width: 180px;
+    min-width: 40px;
+    height: 30px;
+    box-sizing: border-box;
+    padding: 0 6px 0 10px;
+    border-radius: 6px 6px 0 0;
+    cursor: default;
+}
+
+.tab.active {
+    background: #ffffff;
+}
+
+.tab .title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.tab.loading .title {
+    color: #80868b;
+}
+
+button {
+    width: 24px;
+    height: 24px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    font: inherit;
+    color: inherit;
+}
+
+button:disabled {
+    color: #b0b4b9;
+}
+
+.tab .close {
+    width: 18px;
+    height: 18px;
+    margin-left: 4px;
+}
+
+#new-tab {
+    margin: 3px 0 0 4px;
+}
+
+#toolbar {
+    display: flex;
+    align-items: center;
+    height: 40px;
+    box-sizing: border-box;
+    padding: 0 8px;
+    background: #ffffff;
+    border-bottom: 1px solid #dadce0;
+}
+
+#toolbar button {
+    margin-right: 4px;
+}
+
+#address {
+    flex: 1;
+    min-width: 0;
+    height: 26px;
+    box-sizing: border-box;
+    padding: 0 10px;
+    border: 1px solid #dadce0;
+    border-radius: 13px;
+    background: #f1f3f4;
+    font: inherit;
+    color: inherit;
+    outline: none;
+}

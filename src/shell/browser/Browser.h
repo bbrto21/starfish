@@ -20,6 +20,7 @@
 #ifndef __StarfishShellBrowser__
 #define __StarfishShellBrowser__
 
+#include "browser/BrowserUIChannel.h"
 #include "browser/BrowserWindow.h"
 #include "browser/Compositor.h"
 #include "browser/InputRouter.h"
@@ -41,7 +42,10 @@ class AppLoop;
 // Keyboard commands: Control+T opens a tab, Control+W closes the active
 // one, Control+Tab and Control+Shift+Tab (or Control+PageDown and
 // Control+PageUp) move to the next and the previous tab.
-class Browser : private BrowserWindow::Client {
+// Control+L moves to the address bar.
+class Browser : private BrowserWindow::Client,
+                private BrowserUIChannel::Client,
+                private TabModel::Observer {
 public:
     struct Options {
         unsigned width = 1280;
@@ -50,6 +54,12 @@ public:
         bool isWindowVisible = true;
         // Where the engine keeps cookies, storage and caches.
         std::string storageDir;
+        // The tab strip and toolbar above the pages. Without it a page
+        // fills the window, which is what test runners want.
+        bool hasUI = true;
+        // The directory of the UI page; found next to the sources when
+        // empty (see findUIDirectory()).
+        std::string uiDir;
         // One tab per URL, the last one active. A blank tab when empty.
         std::vector<std::string> urls;
     };
@@ -82,6 +92,15 @@ public:
     View* viewOf(TabModel::TabId tab);
     // The view of the active tab.
     View* activeView();
+    // The view of the tab strip and toolbar, nullptr without UI.
+    View* uiView()
+    {
+        return m_uiView.get();
+    }
+
+    // The directory holding the UI page of this build: browser/ui of the
+    // source tree the executable was built in. Empty when not found.
+    static std::string findUIDirectory();
 
     BrowserWindow& window()
     {
@@ -94,6 +113,9 @@ private:
         std::unique_ptr<View> view;
     };
 
+    bool createUIView(const std::string& uiDir);
+    // The strip along the top of the window the UI is shown in.
+    View::Rect uiRect() const;
     // The part of the window pages are shown in.
     View::Rect pageRect() const;
     // The views on screen, the bottom one first.
@@ -104,10 +126,26 @@ private:
     void composite();
     // Moves `offset` tabs to the right of the active one, wrapping around.
     void activateNeighbourTab(int offset);
+    // Puts the caret in the address bar of the UI.
+    void focusAddress();
+    void updateHistoryState(TabModel::TabId tab);
     // True when the key is one of the keyboard commands, which the page
     // then does not see.
     bool handleCommandKey(LWE::KeyValue key, bool isPressed,
                           unsigned modifiers);
+
+    // TabModel::Observer
+    void tabsChanged() override;
+    void tabUpdated(const TabModel::Tab& tab) override;
+
+    // BrowserUIChannel::Client
+    void uiRequestedNewTab() override;
+    void uiRequestedCloseTab(TabModel::TabId tab) override;
+    void uiRequestedActivateTab(TabModel::TabId tab) override;
+    void uiRequestedNavigate(const std::string& text) override;
+    void uiRequestedGoBack() override;
+    void uiRequestedGoForward() override;
+    void uiRequestedReload() override;
 
     // BrowserWindow::Client
     void windowResized(unsigned width, unsigned height) override;
@@ -125,6 +163,8 @@ private:
     std::unique_ptr<Compositor> m_compositor;
     TabModel m_tabs;
     std::vector<TabView> m_views;
+    std::unique_ptr<View> m_uiView;
+    BrowserUIChannel m_uiChannel;
     InputRouter m_inputRouter;
     // The tab whose view is on screen; follows m_tabs.activeTab().
     TabModel::TabId m_shownTab = TabModel::kNoTab;

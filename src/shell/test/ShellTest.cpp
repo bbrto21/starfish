@@ -92,6 +92,12 @@ TEST(ShellTest, BrowserMode)
         0, runShell({ "Starfish", "browser", "about:blank", "--timeout=0.5" }));
     // The URL is optional.
     EXPECT_EQ(0, runShell({ "Starfish", "browser", "--timeout=0.5" }));
+    // Without the tab strip.
+    EXPECT_EQ(0, runShell({ "Starfish", "browser", "about:blank", "--no-ui",
+                            "--timeout=0.5" }));
+    // A UI directory without the UI page is an error.
+    EXPECT_EQ(1, runShell({ "Starfish", "browser", "about:blank",
+                            "--ui-dir=/nonexistent", "--timeout=0.5" }));
     // One tab per URL.
     EXPECT_EQ(0, runShell({ "Starfish", "browser", "about:blank", "about:blank",
                             "--timeout=0.5" }));
