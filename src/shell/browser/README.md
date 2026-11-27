@@ -211,31 +211,44 @@ no tab strip, six seconds after start):
 That is about 13 MB for each added blank tab and 15 MB for each added
 text tab. A view's texture at this size is 3.7 MB of it.
 
-Closing tabs gives back only part of that. Starting from one tab, opening
-15 more and closing them again, six times over (text pages, 1280x720,
-resident size eight seconds after the last close):
+Closing tabs returns their memory, except for one thing that is kept per
+closed tab up to a limit. Starting from one tab, opening 15 more and
+closing them again, 14 times over (text pages, 1280x720, eight seconds
+after the last close):
 
-| Cycle | 16 tabs open | Back to one tab |
+| Tabs closed so far | Resident | Proportional (PSS) |
 |---|---|---|
-| start | | 211 MB |
-| 1 | 541 MB | 278 MB |
-| 2 | 617 MB | 346 MB |
-| 3 | 681 MB | 409 MB |
-| 4 | 738 MB | 469 MB |
-| 5 | 801 MB | 532 MB |
-| 6 | 863 MB | 595 MB |
+| 15 | 218 MB | 169 MB |
+| 30 | 228 MB | 173 MB |
+| 60 | 246 MB | 182 MB |
+| 90 | 264 MB | 189 MB |
+| 120 | 284 MB | 200 MB |
+| 150 | 285 MB | 198 MB |
+| 180 | 290 MB | 204 MB |
+| 210 | 292 MB | 205 MB |
 
-- Each cycle leaves about 63 MB behind, about 4 MB for each closed tab,
-  and it does not level off within six cycles.
-- The amount follows the view size, not the page: blank pages leave about
-  as much (55 MB a cycle), a 320x240 window far less (8 to 16 MB a cycle).
-- It is not left in the shell's GL objects: the number of textures,
-  buffers and programs in the share group is the same after every cycle.
-- It is not specific to this mode: creating and destroying 15 plain
-  `WebContainer::CreateGL` views of 1280x720, each with a window and
-  context of its own, leaves 70 to 140 MB behind per cycle.
-- Where the memory stays (the engine or the GL implementation) has not
-  been determined.
+- With blank pages the size was the same after each of three rounds
+  (202 MB against 200 MB at the start).
+- With text it rises until about 130 tabs have been closed and then stays.
+  What is kept is the font: each view loads its own FreeType face for a
+  font file, and the face of a closed view stays loaded. In a run with
+  one-word pages the font file was mapped once per tab opened so far (16,
+  31, 46, 61 mappings after 15, 30, 45, 60 closed tabs) until the count
+  stopped between 131 and 141, up to 600 closed tabs.
+- A face is held by a `FontFaceReferenceHolder`
+  (`src/platform/canvas/CanvasCairo.cpp`), an uncollectable object that is
+  freed only when Cairo destroys the Cairo font face it is attached to.
+  The number of live holders equalled the number of mappings at every
+  step; a forced full collection released none of them.
+- This is in the engine, not in the shell, and nothing here works around
+  it.
+
+The same rounds with plain `WebContainer::CreateGL` views, each with a
+window and context of its own (no browser mode), leave the process larger
+after every round too, but that memory is not in use: the allocator
+reported 2 MB in use and 533 MB free after 75 views, and in another run
+`malloc_trim` after 45 views brought the resident size from 539 MB down to
+181 MB.
 
 All measurements: debug build, Mesa software rendering (llvmpipe), Xvfb.
 Software rendering keeps textures in ordinary memory, so sizes on a GPU
@@ -288,6 +301,10 @@ Two things to keep in mind when changing this:
   `src/core/modules/renderer/RendererGL.cpp`). Shell code that binds
   another context must put the previous one back; `Compositor` does this
   with a scoped helper.
+- A view deletes its framebuffer itself before its context goes. Left to
+  the destruction of the context, the framebuffer stayed and kept the
+  view's texture storage: about 4 MB for every closed tab at 1280x720
+  (`ClosedTabsReturnTheirTextures` in `BrowserTest.cpp`).
 - On resize a view gets a new texture and drops its framebuffer attachment
   explicitly. Comparing texture names is not enough to see that the
   attachment is stale: GL handed the deleted texture's name to the new
