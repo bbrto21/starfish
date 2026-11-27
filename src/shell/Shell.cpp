@@ -27,6 +27,9 @@
 #if defined(STARFISH_ENABLE_TEST)
 #include "APIReplayer.h"
 #endif
+#if defined(SHELL_ENABLE_BROWSER)
+#include "browser/Browser.h"
+#endif
 
 #if defined(SHELL_ENABLE_BACKTRACE)
 #include <execinfo.h>
@@ -96,6 +99,11 @@ int Shell::run(int argc, char* argv[])
     } else if (argv1 == "replay") {
         // Usage: ./Starfish replay <recording.jsonl> [--speed=<factor>]
         return runReplay(argc, argv);
+#endif
+#if defined(SHELL_ENABLE_BROWSER)
+    } else if (argv1 == "browser") {
+        // Usage: ./Starfish browser [URL] [options]
+        return runBrowser(argc, argv);
 #endif
     } else {
         return runMiniBrowser(argc, argv);
@@ -202,6 +210,47 @@ int Shell::runMiniBrowser(int argc, char* argv[])
     return getExitCode();
 }
 
+#if defined(SHELL_ENABLE_BROWSER)
+int Shell::runBrowser(int argc, char* argv[])
+{
+#if defined(SHELL_ENABLE_BACKTRACE)
+    setBacktraceHandler();
+#endif
+
+    // The URL is optional; everything from the first "--" on is an option.
+    int firstOption = 2;
+    Browser::Options options;
+    if (argc > 2 && strncmp(argv[2], "--", 2) != 0) {
+        options.url = argv[2];
+        firstOption = 3;
+    }
+
+    // Options are written as for the mini browser, whose parser expects
+    // the program name and the URL in front of them.
+    std::vector<char*> miniBrowserArgv = { argv[0], argv[1] };
+    miniBrowserArgv.insert(miniBrowserArgv.end(), argv + firstOption,
+                           argv + argc);
+    MiniBrowser::EnvironmentValues env;
+    MiniBrowser::InitOption init;
+    MiniBrowser::Settings settings;
+    MiniBrowser::OtherOptions others;
+    init.geometry = { 0, 0, options.width, options.height };
+    MiniBrowser::parseArgs(static_cast<int>(miniBrowserArgv.size()),
+                           miniBrowserArgv.data(), env, init, settings, others);
+    options.width = init.geometry.width;
+    options.height = init.geometry.height;
+    options.storageDir = others.storageDir.empty()
+                             ? MiniBrowser::defaultStorageDir()
+                             : others.storageDir;
+
+    Browser browser;
+    if (!browser.init(options)) {
+        return 1;
+    }
+    return browser.run(others.timeout);
+}
+#endif
+
 #if defined(SHELL_ENABLE_BACKTRACE)
 static struct backtrace_state* g_backtraceState = nullptr;
 
@@ -291,6 +340,11 @@ void Shell::printUsage()
     puts("  ./Starfish <URL> [options]");
     puts("  ./Starfish unit-test [options]");
     puts("  ./Starfish create-destroy-test {repeat-count} {interval} {URL}");
+#if defined(SHELL_ENABLE_BROWSER)
+    puts(
+        "  ./Starfish browser [URL] [--width= --height= --timeout= "
+        "--storage-dir=]");
+#endif
 #if defined(STARFISH_ENABLE_TEST)
     puts("  ./Starfish replay <recording.jsonl> [--speed=<factor>] [options]");
 #endif

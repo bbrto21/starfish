@@ -591,7 +591,11 @@ std::string MiniBrowser::storageDir()
     if (!m_storageDirOverride.empty()) {
         return m_storageDirOverride;
     }
+    return defaultStorageDir();
+}
 
+std::string MiniBrowser::defaultStorageDir()
+{
     std::string cacheDir = "/tmp";
     const char* homeDir = getenv("HOME");
     if (homeDir && strlen(homeDir)) {

@@ -197,6 +197,16 @@ out
 ./out/release/lightweight-web-engine 'html/file/path'
 ```
 
+A shell built with `-DSTARFISH_SHELL_BROWSER=ON` also starts as a browser:
+
+```sh
+./out/release/lightweight-web-engine browser [URL] [--width=<px>] [--height=<px>] [--timeout=<sec>] [--storage-dir=<path>]
+```
+
+In this mode the shell owns the window and its input, and each page is an
+`LWE::WebContainer` that renders into a texture the shell composites
+(`src/shell/browser`). It shows one page for now.
+
 Add `--headless` to run without a window, display or GPU: layout,
 scripting, input, accessibility and CDP work, but nothing is painted (see
 the Painting row in `docs/Spec.md`). The x11, ecore and tcore_wl shells

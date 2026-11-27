@@ -119,6 +119,9 @@ public:
                           MiniBrowser::Settings& settings,
                           MiniBrowser::OtherOptions& others);
     static void setEnvironmentValues(const EnvironmentValues& env);
+    // $HOME/Starfish-storage, the storage directory of a run that names
+    // none.
+    static std::string defaultStorageDir();
 
     MiniBrowser();
     ~MiniBrowser();

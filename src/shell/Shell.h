@@ -41,6 +41,9 @@ private:
 #if defined(STARFISH_ENABLE_TEST)
     int runReplay(int argc, char* argv[]);
 #endif
+#if defined(SHELL_ENABLE_BROWSER)
+    int runBrowser(int argc, char* argv[]);
+#endif
 
 #if defined(SHELL_ENABLE_BACKTRACE)
     void setBacktraceHandler();

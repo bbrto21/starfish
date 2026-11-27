@@ -65,6 +65,16 @@ TEST(ShellTest, CreateDestroyTest)
                             "about:blank" }));
 }
 
+#if defined(SHELL_ENABLE_BROWSER)
+TEST(ShellTest, BrowserMode)
+{
+    EXPECT_EQ(
+        0, runShell({ "Starfish", "browser", "about:blank", "--timeout=0.5" }));
+    // The URL is optional.
+    EXPECT_EQ(0, runShell({ "Starfish", "browser", "--timeout=0.5" }));
+}
+#endif
+
 TEST(ShellTest, ReplayRecording)
 {
     EXPECT_EQ(1, runShell({ "Starfish", "replay" }));
