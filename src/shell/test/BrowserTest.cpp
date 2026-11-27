@@ -59,13 +59,49 @@ protected:
         options.width = width;
         options.height = height;
         options.storageDir = "/tmp/starfish_storage/";
-        options.url = "data:text/html," + html;
+        options.urls.push_back(page(html));
         ASSERT_TRUE(m_browser.init(options));
+        waitForActiveTab();
+    }
+
+    static std::string page(const std::string& html)
+    {
+        return "data:text/html," + html;
+    }
+
+    static std::string colorPage(const std::string& color)
+    {
+        return page("<body style='margin:0;background:%23" + color +
+                    "'></body>");
+    }
+
+    // Until the active tab has loaded and drawn.
+    void waitForActiveTab()
+    {
         ASSERT_TRUE(runUntil([this] {
             const TabModel& tabs = m_browser.tabs();
             return !tabs.tab(tabs.activeTab()).isLoading &&
                    m_browser.activeView()->hasFrame();
         }));
+    }
+
+    TabModel::TabId newTab(const std::string& url)
+    {
+        TabModel::TabId tab = m_browser.newTab(url);
+        EXPECT_NE(TabModel::kNoTab, tab);
+        waitForActiveTab();
+        return tab;
+    }
+
+    bool showsColor(unsigned long color)
+    {
+        return runUntil(
+            [this, color] { return windowPixel(200, 150) == color; }, 5);
+    }
+
+    std::string evaluateIn(TabModel::TabId tab, const std::string& script)
+    {
+        return m_browser.viewOf(tab)->container()->EvaluateJavaScript(script);
     }
 
     bool runUntil(const std::function<bool()>& isDone, double seconds = 10)
@@ -119,13 +155,20 @@ protected:
         send(event, type == ButtonPress ? ButtonPressMask : ButtonReleaseMask);
     }
 
-    void sendKey(int type, KeySym keysym)
+    void sendKey(int type, KeySym keysym, unsigned state = 0)
     {
         XEvent event = {};
         event.xkey.type = type;
         event.xkey.keycode = XKeysymToKeycode(m_display, keysym);
+        event.xkey.state = state;
         event.xkey.same_screen = True;
         send(event, type == KeyPress ? KeyPressMask : KeyReleaseMask);
+    }
+
+    void command(KeySym keysym, unsigned state = ControlMask)
+    {
+        sendKey(KeyPress, keysym, state);
+        sendKey(KeyRelease, keysym, state);
     }
 
     Display* m_display = nullptr;
@@ -240,6 +283,185 @@ TEST_F(BrowserTest, CloseRequestEndsTheLoop)
     m_browser.run(10);
     EXPECT_LT(std::chrono::steady_clock::now() - start,
               std::chrono::seconds(5));
+}
+
+TEST_F(BrowserTest, ShowsTheActiveTab)
+{
+    open("<body style='margin:0;background:%23ff0000'></body>");
+    TabModel::TabId red = m_browser.tabs().activeTab();
+    TabModel::TabId green = newTab(colorPage("00ff00"));
+    TabModel::TabId blue = newTab(colorPage("0000ff"));
+
+    EXPECT_EQ(blue, m_browser.tabs().activeTab());
+    EXPECT_TRUE(showsColor(0x0000ff));
+
+    EXPECT_TRUE(m_browser.activateTab(red));
+    EXPECT_TRUE(showsColor(0xff0000));
+    EXPECT_TRUE(m_browser.activateTab(green));
+    EXPECT_TRUE(showsColor(0x00ff00));
+    EXPECT_FALSE(m_browser.activateTab(blue + 100));
+
+    // Closing the shown tab brings up its neighbour.
+    EXPECT_TRUE(m_browser.closeTab(green));
+    EXPECT_EQ(blue, m_browser.tabs().activeTab());
+    EXPECT_TRUE(showsColor(0x0000ff));
+    EXPECT_EQ(nullptr, m_browser.viewOf(green));
+    EXPECT_FALSE(m_browser.closeTab(green));
+}
+
+TEST_F(BrowserTest, KeyboardCommandsDriveTabs)
+{
+    open(
+        "<body style='margin:0;background:%23ff0000'><script>"
+        "var keys = '';"
+        "onkeydown = function(e) { keys += e.key; };"
+        "</script></body>");
+    TabModel::TabId first = m_browser.tabs().activeTab();
+
+    command(XK_t);
+    ASSERT_TRUE(
+        runUntil([this] { return m_browser.tabs().tabs().size() == 2; }));
+    TabModel::TabId second = m_browser.tabs().activeTab();
+    EXPECT_NE(first, second);
+    waitForActiveTab();
+    EXPECT_TRUE(showsColor(0xffffff));
+
+    command(XK_Tab);
+    EXPECT_TRUE(
+        runUntil([&] { return m_browser.tabs().activeTab() == first; }));
+    EXPECT_TRUE(showsColor(0xff0000));
+    // Past the last tab comes the first, and the other way round.
+    command(XK_ISO_Left_Tab, ControlMask | ShiftMask);
+    EXPECT_TRUE(
+        runUntil([&] { return m_browser.tabs().activeTab() == second; }));
+    command(XK_Next);
+    EXPECT_TRUE(
+        runUntil([&] { return m_browser.tabs().activeTab() == first; }));
+    command(XK_Prior);
+    EXPECT_TRUE(
+        runUntil([&] { return m_browser.tabs().activeTab() == second; }));
+
+    command(XK_w);
+    ASSERT_TRUE(
+        runUntil([this] { return m_browser.tabs().tabs().size() == 1; }));
+    EXPECT_EQ(first, m_browser.tabs().activeTab());
+    EXPECT_TRUE(showsColor(0xff0000));
+
+    // The page saw the Control key but none of the command keys.
+    sendKey(KeyPress, XK_x);
+    sendKey(KeyRelease, XK_x);
+    EXPECT_TRUE(runUntil([this] { return evaluate("keys") == "x"; }))
+        << evaluate("keys");
+}
+
+TEST_F(BrowserTest, InputGoesToTheActiveTabOnly)
+{
+    const char* recorder =
+        "<body style='margin:0'><script>"
+        "var seen = '';"
+        "onmousedown = function() { seen += 'click '; };"
+        "onkeydown = function(e) { seen += e.key; };"
+        "</script></body>";
+    open(recorder);
+    TabModel::TabId first = m_browser.tabs().activeTab();
+    TabModel::TabId second = newTab(page(recorder));
+
+    sendButton(ButtonPress, Button1, 200, 200);
+    sendButton(ButtonRelease, Button1, 200, 200);
+    sendKey(KeyPress, XK_a);
+    sendKey(KeyRelease, XK_a);
+    EXPECT_TRUE(runUntil([&] {
+        return evaluateIn(second, "seen") == "click a";
+    })) << evaluateIn(second, "seen");
+    EXPECT_EQ("", evaluateIn(first, "seen"));
+
+    m_browser.activateTab(first);
+    sendKey(KeyPress, XK_b);
+    sendKey(KeyRelease, XK_b);
+    EXPECT_TRUE(runUntil([&] { return evaluateIn(first, "seen") == "b"; }))
+        << evaluateIn(first, "seen");
+    EXPECT_EQ("click a", evaluateIn(second, "seen"));
+}
+
+TEST_F(BrowserTest, BackgroundTabStopsAnimating)
+{
+    open(
+        "<body><script>"
+        "var ticks = 0;"
+        "(function tick() { ticks++; requestAnimationFrame(tick); })();"
+        "</script></body>");
+    TabModel::TabId animated = m_browser.tabs().activeTab();
+    ASSERT_TRUE(runUntil(
+        [&] { return std::stoi(evaluateIn(animated, "String(ticks)")) > 5; }));
+
+    newTab(colorPage("00ff00"));
+    // A frame already under way may still finish.
+    runUntil([] { return false; }, 0.3);
+    int ticksWhenHidden = std::stoi(evaluateIn(animated, "String(ticks)"));
+    runUntil([] { return false; }, 0.5);
+    EXPECT_EQ(ticksWhenHidden,
+              std::stoi(evaluateIn(animated, "String(ticks)")));
+
+    m_browser.activateTab(animated);
+    EXPECT_TRUE(runUntil([&] {
+        return std::stoi(evaluateIn(animated, "String(ticks)")) >
+               ticksWhenHidden + 5;
+    }));
+}
+
+TEST_F(BrowserTest, BackgroundTabCatchesUpWithWindowSize)
+{
+    open("<body style='margin:0;background:%23ff0000'></body>");
+    TabModel::TabId red = m_browser.tabs().activeTab();
+    newTab(colorPage("00ff00"));
+
+    XResizeWindow(m_display, m_browser.window().nativeHandle(), 640, 480);
+    XFlush(m_display);
+    ASSERT_TRUE(runUntil([this] {
+        return evaluate("innerWidth + 'x' + innerHeight") == "640x480";
+    }));
+
+    m_browser.activateTab(red);
+    EXPECT_TRUE(runUntil([this] {
+        return evaluate("innerWidth + 'x' + innerHeight") == "640x480" &&
+               windowPixel(0, 0) == 0xff0000 &&
+               windowPixel(639, 479) == 0xff0000;
+    })) << evaluate("innerWidth + 'x' + innerHeight");
+}
+
+TEST_F(BrowserTest, TabsOpenAndCloseRepeatedly)
+{
+    open("<body style='margin:0;background:%23ff0000'></body>");
+    TabModel::TabId first = m_browser.tabs().activeTab();
+
+    for (int i = 0; i < 20; i++) {
+        TabModel::TabId tab = m_browser.newTab(colorPage("00ff00"));
+        ASSERT_NE(TabModel::kNoTab, tab);
+        // Every other tab is closed before it has loaded or drawn.
+        if (i % 2) {
+            waitForActiveTab();
+        }
+        ASSERT_TRUE(m_browser.closeTab(tab));
+    }
+
+    EXPECT_EQ(first, m_browser.tabs().activeTab());
+    EXPECT_EQ(1u, m_browser.tabs().tabs().size());
+    EXPECT_TRUE(showsColor(0xff0000));
+    // The surviving page still draws new frames.
+    evaluate("document.body.style.background = '#0000ff'");
+    EXPECT_TRUE(showsColor(0x0000ff));
+}
+
+TEST_F(BrowserTest, ClosingTheLastTabEndsTheLoop)
+{
+    open("<body></body>");
+
+    command(XK_w);
+    auto start = std::chrono::steady_clock::now();
+    m_browser.run(10);
+    EXPECT_LT(std::chrono::steady_clock::now() - start,
+              std::chrono::seconds(5));
+    EXPECT_TRUE(m_browser.tabs().tabs().empty());
 }
 
 } // namespace StarfishShell

@@ -143,6 +143,19 @@ void View::setRect(const Rect& rect)
     m_container->ResizeTo(rect.width, rect.height);
 }
 
+void View::setPaused(bool isPaused)
+{
+    if (m_isPaused == isPaused) {
+        return;
+    }
+    m_isPaused = isPaused;
+    if (isPaused) {
+        m_container->Pause();
+    } else {
+        m_container->Resume();
+    }
+}
+
 unsigned View::renderFramebuffer()
 {
     if (m_framebuffer && m_attachedTexture == m_texture) {

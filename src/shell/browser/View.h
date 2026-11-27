@@ -56,6 +56,9 @@ public:
     // Moves the view; a new size also resizes the page.
     void setRect(const Rect& rect);
 
+    // A paused page stops animating; it keeps its last frame.
+    void setPaused(bool isPaused);
+
     const Rect& rect() const
     {
         return m_rect;
@@ -94,6 +97,7 @@ private:
     // The texture currently attached to m_framebuffer.
     unsigned m_attachedTexture = 0;
     bool m_hasFrame = false;
+    bool m_isPaused = false;
 };
 
 } // namespace StarfishShell

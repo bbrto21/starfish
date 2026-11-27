@@ -44,6 +44,8 @@ namespace {
         case XK_BackSpace:
             return LWE::KeyValue::BackspaceKey;
         case XK_Tab:
+        // Shift+Tab.
+        case XK_ISO_Left_Tab:
             return LWE::KeyValue::TabKey;
         case XK_Return:
             return LWE::KeyValue::EnterKey;
@@ -110,6 +112,21 @@ namespace {
             return static_cast<LWE::KeyValue>(keysym);
         }
         return LWE::KeyValue::UnidentifiedKey;
+    }
+
+    unsigned toModifiers(unsigned state)
+    {
+        unsigned modifiers = 0;
+        if (state & ShiftMask) {
+            modifiers |= BrowserWindow::ShiftModifier;
+        }
+        if (state & ControlMask) {
+            modifiers |= BrowserWindow::ControlModifier;
+        }
+        if (state & Mod1Mask) {
+            modifiers |= BrowserWindow::AltModifier;
+        }
+        return modifiers;
     }
 
     bool isPrintableASCII(KeySym keysym)
@@ -327,10 +344,15 @@ void BrowserWindow::handleKeyEvent(XEvent& event)
     int length =
         XLookupString(&event.xkey, text, sizeof(text), &keysym, nullptr);
 
-    // Keys that produce no text never involve the input method.
+    // Keys that produce no text never involve the input method, and
+    // neither does a letter held with Control or Alt: that is a command,
+    // for which X would report a control character.
+    unsigned modifiers = toModifiers(event.xkey.state);
     LWE::KeyValue key = toKeyValue(keysym);
-    if (key != LWE::KeyValue::UnidentifiedKey && !isPrintableASCII(keysym)) {
-        m_client.keyChanged(key, isPressed);
+    if (key != LWE::KeyValue::UnidentifiedKey &&
+        (!isPrintableASCII(keysym) ||
+         (modifiers & (ControlModifier | AltModifier)))) {
+        m_client.keyChanged(key, isPressed, modifiers);
         return;
     }
 
@@ -346,7 +368,7 @@ void BrowserWindow::handleKeyEvent(XEvent& event)
     if (length == 1 && isprint(static_cast<unsigned char>(text[0]))) {
         m_client.keyChanged(
             static_cast<LWE::KeyValue>(static_cast<unsigned char>(text[0])),
-            isPressed);
+            isPressed, modifiers);
     } else if (length > 0 && isPressed) {
         m_client.textCommitted(std::string(text, length));
     }

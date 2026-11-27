@@ -38,6 +38,12 @@ namespace StarfishShell {
 // and knows nothing about what is drawn inside.
 class BrowserWindow {
 public:
+    enum Modifier : unsigned {
+        ShiftModifier = 1 << 0,
+        ControlModifier = 1 << 1,
+        AltModifier = 1 << 2,
+    };
+
     // Positions are in window pixels, origin at the top left.
     class Client {
     public:
@@ -51,7 +57,10 @@ public:
         virtual void pointerButtonChanged(int x, int y, bool isPressed) = 0;
         // `delta` is -1 for one step up, 1 for one step down.
         virtual void wheelScrolled(int x, int y, int delta) = 0;
-        virtual void keyChanged(LWE::KeyValue key, bool isPressed) = 0;
+        // `modifiers` are the Modifier bits held with the key. A letter
+        // typed with Control or Alt arrives as its unmodified key.
+        virtual void keyChanged(LWE::KeyValue key, bool isPressed,
+                                unsigned modifiers) = 0;
         // Text from the input method that no single key stands for.
         virtual void textCommitted(const std::string& text) = 0;
     };

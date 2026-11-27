@@ -72,6 +72,9 @@ TEST(ShellTest, BrowserMode)
         0, runShell({ "Starfish", "browser", "about:blank", "--timeout=0.5" }));
     // The URL is optional.
     EXPECT_EQ(0, runShell({ "Starfish", "browser", "--timeout=0.5" }));
+    // One tab per URL.
+    EXPECT_EQ(0, runShell({ "Starfish", "browser", "about:blank", "about:blank",
+                            "--timeout=0.5" }));
 }
 #endif
 

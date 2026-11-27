@@ -102,7 +102,7 @@ int Shell::run(int argc, char* argv[])
 #endif
 #if defined(SHELL_ENABLE_BROWSER)
     } else if (argv1 == "browser") {
-        // Usage: ./Starfish browser [URL] [options]
+        // Usage: ./Starfish browser [URL...] [options]
         return runBrowser(argc, argv);
 #endif
     } else {
@@ -217,12 +217,11 @@ int Shell::runBrowser(int argc, char* argv[])
     setBacktraceHandler();
 #endif
 
-    // The URL is optional; everything from the first "--" on is an option.
+    // Each argument up to the first "--" option is the URL of a tab.
     int firstOption = 2;
     Browser::Options options;
-    if (argc > 2 && strncmp(argv[2], "--", 2) != 0) {
-        options.url = argv[2];
-        firstOption = 3;
+    while (firstOption < argc && strncmp(argv[firstOption], "--", 2) != 0) {
+        options.urls.push_back(argv[firstOption++]);
     }
 
     // Options are written as for the mini browser, whose parser expects
@@ -342,7 +341,7 @@ void Shell::printUsage()
     puts("  ./Starfish create-destroy-test {repeat-count} {interval} {URL}");
 #if defined(SHELL_ENABLE_BROWSER)
     puts(
-        "  ./Starfish browser [URL] [--width= --height= --timeout= "
+        "  ./Starfish browser [URL...] [--width= --height= --timeout= "
         "--storage-dir=]");
 #endif
 #if defined(STARFISH_ENABLE_TEST)

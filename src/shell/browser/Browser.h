@@ -22,6 +22,7 @@
 
 #include "browser/BrowserWindow.h"
 #include "browser/Compositor.h"
+#include "browser/InputRouter.h"
 #include "browser/TabModel.h"
 #include "browser/View.h"
 
@@ -36,6 +37,10 @@ class AppLoop;
 // The tabbed browser behind `Starfish browser`: one window whose pages
 // are views composited by the shell. Ties the window, the compositor, the
 // tab model and the views together, and routes input to the views.
+//
+// Keyboard commands: Control+T opens a tab, Control+W closes the active
+// one, Control+Tab and Control+Shift+Tab (or Control+PageDown and
+// Control+PageUp) move to the next and the previous tab.
 class Browser : private BrowserWindow::Client {
 public:
     struct Options {
@@ -43,14 +48,14 @@ public:
         unsigned height = 720;
         // Where the engine keeps cookies, storage and caches.
         std::string storageDir;
-        // The page of the first tab.
-        std::string url = "about:blank";
+        // One tab per URL, the last one active. A blank tab when empty.
+        std::vector<std::string> urls;
     };
 
     Browser();
     ~Browser();
 
-    // Initializes the engine and opens the window with its first tab.
+    // Initializes the engine and opens the window with its tabs.
     bool init(const Options& options);
 
     // Runs the main loop until quit(), or for `timeoutInSec` seconds when
@@ -63,6 +68,16 @@ public:
         return m_tabs;
     }
 
+    // Opens a tab showing `url` and makes it the active one. Returns
+    // TabModel::kNoTab when the page view cannot be created.
+    TabModel::TabId newTab(const std::string& url);
+    // Closing the last tab ends run(). Returns false for an unknown id.
+    bool closeTab(TabModel::TabId tab);
+    // Returns false for an unknown id.
+    bool activateTab(TabModel::TabId tab);
+
+    // nullptr for an unknown id.
+    View* viewOf(TabModel::TabId tab);
     // The view of the active tab.
     View* activeView();
 
@@ -77,10 +92,20 @@ private:
         std::unique_ptr<View> view;
     };
 
-    bool openTab(const std::string& url);
     // The part of the window pages are shown in.
     View::Rect pageRect() const;
+    // The views on screen, the bottom one first.
+    std::vector<View*> visibleViews();
+    // Puts the view of the active tab on screen, pauses the one it
+    // replaces and moves the focus. Call after every change to m_tabs.
+    void showActiveTab();
     void composite();
+    // Moves `offset` tabs to the right of the active one, wrapping around.
+    void activateNeighbourTab(int offset);
+    // True when the key is one of the keyboard commands, which the page
+    // then does not see.
+    bool handleCommandKey(LWE::KeyValue key, bool isPressed,
+                          unsigned modifiers);
 
     // BrowserWindow::Client
     void windowResized(unsigned width, unsigned height) override;
@@ -89,7 +114,8 @@ private:
     void pointerMoved(int x, int y) override;
     void pointerButtonChanged(int x, int y, bool isPressed) override;
     void wheelScrolled(int x, int y, int delta) override;
-    void keyChanged(LWE::KeyValue key, bool isPressed) override;
+    void keyChanged(LWE::KeyValue key, bool isPressed,
+                    unsigned modifiers) override;
     void textCommitted(const std::string& text) override;
 
     std::unique_ptr<AppLoop> m_appLoop;
@@ -97,8 +123,10 @@ private:
     std::unique_ptr<Compositor> m_compositor;
     TabModel m_tabs;
     std::vector<TabView> m_views;
+    InputRouter m_inputRouter;
+    // The tab whose view is on screen; follows m_tabs.activeTab().
+    TabModel::TabId m_shownTab = TabModel::kNoTab;
     bool m_isEngineInitialized = false;
-    bool m_isPrimaryButtonDown = false;
 };
 
 } // namespace StarfishShell

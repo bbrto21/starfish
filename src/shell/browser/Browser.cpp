@@ -36,6 +36,7 @@ Browser::~Browser()
 {
     // Views before the compositor they render with, the compositor before
     // the window it draws into.
+    m_inputRouter.setVisibleViews({});
     m_views.clear();
     m_compositor.reset();
     m_window.reset();
@@ -66,7 +67,15 @@ bool Browser::init(const Options& options)
                          LWE::InitializeOption::None);
     m_isEngineInitialized = true;
 
-    return openTab(options.url);
+    if (options.urls.empty()) {
+        return newTab("about:blank") != TabModel::kNoTab;
+    }
+    for (const std::string& url : options.urls) {
+        if (newTab(url) == TabModel::kNoTab) {
+            return false;
+        }
+    }
+    return true;
 }
 
 int Browser::run(double timeoutInSec)
@@ -79,21 +88,17 @@ void Browser::quit()
     m_appLoop->stop();
 }
 
-View* Browser::activeView()
-{
-    for (TabView& tabView : m_views) {
-        if (tabView.tab == m_tabs.activeTab()) {
-            return tabView.view.get();
-        }
-    }
-    return nullptr;
-}
-
-bool Browser::openTab(const std::string& url)
+TabModel::TabId Browser::newTab(const std::string& url)
 {
     std::unique_ptr<View> view(new View(*m_compositor));
-    if (!view->init(pageRect(), [this](View*) { composite(); })) {
-        return false;
+    bool isCreated = view->init(pageRect(), [this](View* view) {
+        // A page in the background still draws now and then.
+        if (view == activeView()) {
+            composite();
+        }
+    });
+    if (!isCreated) {
+        return TabModel::kNoTab;
     }
 
     TabModel::TabId tab = m_tabs.addTab(url);
@@ -113,11 +118,58 @@ bool Browser::openTab(const std::string& url)
         [this](LWE::WebContainer*) { m_window->setInputMethodActive(true); });
     container->RegisterOnHideSoftwareKeyboardIfPossibleHandler(
         [this](LWE::WebContainer*) { m_window->setInputMethodActive(false); });
-
     container->LoadURL(url);
-    container->Focus();
+
     m_views.push_back(TabView{ tab, std::move(view) });
+    showActiveTab();
+    return tab;
+}
+
+bool Browser::closeTab(TabModel::TabId tab)
+{
+    if (!m_tabs.closeTab(tab)) {
+        return false;
+    }
+    std::unique_ptr<View> closedView;
+    for (auto it = m_views.begin(); it != m_views.end(); ++it) {
+        if (it->tab == tab) {
+            closedView = std::move(it->view);
+            m_views.erase(it);
+            break;
+        }
+    }
+    // Nothing refers to the view any more once the next tab is shown.
+    showActiveTab();
+    closedView.reset();
+
+    if (m_tabs.tabs().empty()) {
+        quit();
+    }
     return true;
+}
+
+bool Browser::activateTab(TabModel::TabId tab)
+{
+    if (!m_tabs.activateTab(tab)) {
+        return false;
+    }
+    showActiveTab();
+    return true;
+}
+
+View* Browser::viewOf(TabModel::TabId tab)
+{
+    for (TabView& tabView : m_views) {
+        if (tabView.tab == tab) {
+            return tabView.view.get();
+        }
+    }
+    return nullptr;
+}
+
+View* Browser::activeView()
+{
+    return viewOf(m_tabs.activeTab());
 }
 
 View::Rect Browser::pageRect() const
@@ -128,19 +180,116 @@ View::Rect Browser::pageRect() const
     return rect;
 }
 
-void Browser::composite()
+std::vector<View*> Browser::visibleViews()
 {
     std::vector<View*> views;
     if (View* view = activeView()) {
         views.push_back(view);
     }
-    m_compositor->composite(views, m_window->height());
+    return views;
+}
+
+void Browser::showActiveTab()
+{
+    TabModel::TabId active = m_tabs.activeTab();
+    if (active != m_shownTab) {
+        // Null when that tab was just closed.
+        if (View* previous = viewOf(m_shownTab)) {
+            previous->setPaused(true);
+        }
+        m_shownTab = active;
+        if (View* view = viewOf(active)) {
+            // The window may have changed size while the tab was in the
+            // background.
+            view->setRect(pageRect());
+            view->setPaused(false);
+        }
+    }
+    m_inputRouter.setVisibleViews(visibleViews());
+    m_inputRouter.setFocusedView(activeView());
+    composite();
+}
+
+void Browser::composite()
+{
+    m_compositor->composite(visibleViews(), m_window->height());
+}
+
+void Browser::activateNeighbourTab(int offset)
+{
+    const std::vector<TabModel::Tab>& tabs = m_tabs.tabs();
+    int count = static_cast<int>(tabs.size());
+    for (int i = 0; i < count; i++) {
+        if (tabs[i].id == m_tabs.activeTab()) {
+            activateTab(tabs[((i + offset) % count + count) % count].id);
+            return;
+        }
+    }
+}
+
+bool Browser::handleCommandKey(LWE::KeyValue key, bool isPressed,
+                               unsigned modifiers)
+{
+    if (!(modifiers & BrowserWindow::ControlModifier)) {
+        return false;
+    }
+    enum {
+        NoCommand,
+        NewTab,
+        CloseTab,
+        NextTab,
+        PreviousTab
+    } command = NoCommand;
+    bool isShiftHeld = modifiers & BrowserWindow::ShiftModifier;
+    switch (static_cast<int>(key)) {
+    case 't':
+    case 'T':
+        command = NewTab;
+        break;
+    case 'w':
+    case 'W':
+        command = CloseTab;
+        break;
+    case LWE::KeyValue::TabKey:
+        command = isShiftHeld ? PreviousTab : NextTab;
+        break;
+    case LWE::KeyValue::PageDownKey:
+        command = NextTab;
+        break;
+    case LWE::KeyValue::PageUpKey:
+        command = PreviousTab;
+        break;
+    default:
+        return false;
+    }
+    // The release of a command key is swallowed like its press.
+    if (!isPressed) {
+        return true;
+    }
+    switch (command) {
+    case NewTab:
+        newTab("about:blank");
+        break;
+    case CloseTab:
+        closeTab(m_tabs.activeTab());
+        break;
+    case NextTab:
+        activateNeighbourTab(1);
+        break;
+    case PreviousTab:
+        activateNeighbourTab(-1);
+        break;
+    default:
+        break;
+    }
+    return true;
 }
 
 void Browser::windowResized(unsigned, unsigned)
 {
-    for (TabView& tabView : m_views) {
-        tabView.view->setRect(pageRect());
+    // Tabs in the background catch up when they are shown.
+    if (View* view = activeView()) {
+        view->setRect(pageRect());
     }
     composite();
 }
@@ -157,66 +306,29 @@ void Browser::windowCloseRequested()
 
 void Browser::pointerMoved(int x, int y)
 {
-    View* view = activeView();
-    if (!view) {
-        return;
-    }
-    // The held button lets the page follow a drag.
-    view->container()->DispatchMouseMoveEvent(
-        LWE::MouseButtonValue::NoButton,
-        m_isPrimaryButtonDown ? LWE::MouseButtonsValue::LeftButtonDown
-                              : LWE::MouseButtonsValue::NoButtonDown,
-        x - view->rect().x, y - view->rect().y);
+    m_inputRouter.pointerMoved(x, y);
 }
 
 void Browser::pointerButtonChanged(int x, int y, bool isPressed)
 {
-    m_isPrimaryButtonDown = isPressed;
-    View* view = activeView();
-    if (!view) {
-        return;
-    }
-    x -= view->rect().x;
-    y -= view->rect().y;
-    if (isPressed) {
-        view->container()->DispatchMouseDownEvent(
-            LWE::MouseButtonValue::LeftButton,
-            LWE::MouseButtonsValue::LeftButtonDown, x, y);
-    } else {
-        view->container()->DispatchMouseUpEvent(
-            LWE::MouseButtonValue::LeftButton,
-            LWE::MouseButtonsValue::NoButtonDown, x, y);
-    }
+    m_inputRouter.pointerButtonChanged(x, y, isPressed);
 }
 
 void Browser::wheelScrolled(int x, int y, int delta)
 {
-    if (View* view = activeView()) {
-        view->container()->DispatchMouseWheelEvent(x - view->rect().x,
-                                                   y - view->rect().y, delta);
-    }
+    m_inputRouter.wheelScrolled(x, y, delta);
 }
 
-void Browser::keyChanged(LWE::KeyValue key, bool isPressed)
+void Browser::keyChanged(LWE::KeyValue key, bool isPressed, unsigned modifiers)
 {
-    View* view = activeView();
-    if (!view) {
-        return;
-    }
-    if (isPressed) {
-        view->container()->DispatchKeyDownEvent(key);
-        view->container()->DispatchKeyPressEvent(key);
-    } else {
-        view->container()->DispatchKeyUpEvent(key);
+    if (!handleCommandKey(key, isPressed, modifiers)) {
+        m_inputRouter.keyChanged(key, isPressed);
     }
 }
 
 void Browser::textCommitted(const std::string& text)
 {
-    if (View* view = activeView()) {
-        // XIM reports a finished composition only, with no updates.
-        view->container()->DispatchCompositionEndEvent(text);
-    }
+    m_inputRouter.textCommitted(text);
 }
 
 } // namespace StarfishShell

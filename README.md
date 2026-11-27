@@ -200,12 +200,20 @@ out
 A shell built with `-DSTARFISH_SHELL_BROWSER=ON` also starts as a browser:
 
 ```sh
-./out/release/lightweight-web-engine browser [URL] [--width=<px>] [--height=<px>] [--timeout=<sec>] [--storage-dir=<path>]
+./out/release/lightweight-web-engine browser [URL...] [--width=<px>] [--height=<px>] [--timeout=<sec>] [--storage-dir=<path>]
 ```
 
 In this mode the shell owns the window and its input, and each page is an
 `LWE::WebContainer` that renders into a texture the shell composites
-(`src/shell/browser`). It shows one page for now.
+(`src/shell/browser`). Each URL opens in its own tab. There is no tab strip
+yet; tabs are driven from the keyboard:
+
+| Key | Action |
+|---|---|
+| Ctrl+T | Open a tab |
+| Ctrl+W | Close the active tab; closing the last one exits |
+| Ctrl+Tab, Ctrl+PageDown | Next tab |
+| Ctrl+Shift+Tab, Ctrl+PageUp | Previous tab |
 
 Add `--headless` to run without a window, display or GPU: layout,
 scripting, input, accessibility and CDP work, but nothing is painted (see
