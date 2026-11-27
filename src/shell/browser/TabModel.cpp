@@ -120,6 +120,19 @@ void TabModel::setLoading(TabId id, bool isLoading)
     notifyTabUpdated(m_tabs[index]);
 }
 
+void TabModel::setHistoryState(TabId id, bool canGoBack, bool canGoForward)
+{
+    size_t index = indexOf(id);
+    if (index == m_tabs.size() ||
+        (m_tabs[index].canGoBack == canGoBack &&
+         m_tabs[index].canGoForward == canGoForward)) {
+        return;
+    }
+    m_tabs[index].canGoBack = canGoBack;
+    m_tabs[index].canGoForward = canGoForward;
+    notifyTabUpdated(m_tabs[index]);
+}
+
 void TabModel::notifyTabsChanged()
 {
     if (m_observer) {

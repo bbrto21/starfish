@@ -40,6 +40,9 @@ public:
         std::string url;
         std::string title;
         bool isLoading = false;
+        // Whether the tab's session history has an entry to go to.
+        bool canGoBack = false;
+        bool canGoForward = false;
     };
 
     class Observer {
@@ -86,6 +89,7 @@ public:
     void setURL(TabId id, const std::string& url);
     void setTitle(TabId id, const std::string& title);
     void setLoading(TabId id, bool isLoading);
+    void setHistoryState(TabId id, bool canGoBack, bool canGoForward);
 
 private:
     // m_tabs.size() when there is no such tab.

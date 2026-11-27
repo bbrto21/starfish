@@ -168,12 +168,20 @@ TEST(BrowserTabModelTest, ObserverSeesTabUpdatesOnlyOnChange)
     EXPECT_TRUE(model.tab(id).isLoading);
     EXPECT_EQ(3, observer.tabUpdatedCount);
 
+    model.setHistoryState(id, true, false);
+    EXPECT_TRUE(model.tab(id).canGoBack);
+    EXPECT_FALSE(model.tab(id).canGoForward);
+    EXPECT_EQ(4, observer.tabUpdatedCount);
+    model.setHistoryState(id, true, false);
+    EXPECT_EQ(4, observer.tabUpdatedCount);
+
     // A page event for a tab that is already gone is dropped.
     model.closeTab(id);
     model.setTitle(id, "Late");
     model.setURL(id, "late");
     model.setLoading(id, false);
-    EXPECT_EQ(3, observer.tabUpdatedCount);
+    model.setHistoryState(id, false, true);
+    EXPECT_EQ(4, observer.tabUpdatedCount);
 }
 
 } // namespace StarfishShell
