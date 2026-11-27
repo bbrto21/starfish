@@ -64,7 +64,8 @@ from repo_paths import REPO_ROOT  # noqa: E402
 from wpt_server import DEFAULT_WPT_ROOT, DEFAULT_TEST_TIMEOUT  # noqa: E402
 from wpt_urls import ORIGINS, test_url  # noqa: E402
 
-STARFISH = os.path.join(REPO_ROOT, "Starfish")
+STARFISH = os.path.abspath(os.environ.get(
+    "STARFISH_BIN", os.path.join(REPO_ROOT, "Starfish")))
 IMGDIFF = os.path.join(REPO_ROOT, "tool", "imgdiff", "imgdiff")
 
 
