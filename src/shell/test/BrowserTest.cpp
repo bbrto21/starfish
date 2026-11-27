@@ -533,6 +533,40 @@ TEST_F(BrowserTest, TabsOpenAndCloseRepeatedly)
     EXPECT_TRUE(showsColor(0x0000ff));
 }
 
+// With software GL a view's texture is ordinary memory, about 3.7 MB at
+// this size. A closed tab that keeps its texture shows up as resident
+// memory that never comes back.
+TEST_F(BrowserTest, ClosedTabsReturnTheirTextures)
+{
+    auto residentMB = [] {
+        long pages = 0, resident = 0;
+        FILE* file = fopen("/proc/self/statm", "r");
+        if (file) {
+            if (fscanf(file, "%ld %ld", &pages, &resident) != 2) {
+                resident = 0;
+            }
+            fclose(file);
+        }
+        return resident * sysconf(_SC_PAGESIZE) / (1024 * 1024);
+    };
+
+    open("<body></body>", 1280, 720);
+    // One round first, so what the engine allocates once is not counted.
+    for (int i = 0; i < 10; i++) {
+        ASSERT_TRUE(m_browser.closeTab(newTab("about:blank")));
+    }
+    runUntil([] { return false; }, 2);
+    long before = residentMB();
+
+    for (int i = 0; i < 30; i++) {
+        ASSERT_TRUE(m_browser.closeTab(newTab("about:blank")));
+    }
+    // 30 leaked textures are 110 MB. Freed memory may take a while to
+    // leave the process, hence the wait.
+    EXPECT_TRUE(runUntil([&] { return residentMB() - before < 50; }, 30))
+        << "grew by " << residentMB() - before << " MB";
+}
+
 TEST_F(BrowserTest, ClosingTheLastTabEndsTheLoop)
 {
     open("<body></body>");

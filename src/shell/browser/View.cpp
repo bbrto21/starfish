@@ -42,11 +42,16 @@ View::~View()
         // The page releases its GL resources, which needs m_context.
         m_container->Destroy();
     }
+    if (m_framebuffer) {
+        // Not left to the context's destruction: a framebuffer that was
+        // only abandoned that way kept its texture's storage alive.
+        m_compositor.makeCurrent(m_context);
+        glDeleteFramebuffers(1, &m_framebuffer);
+    }
     if (m_texture) {
         m_compositor.deleteTexture(m_texture);
     }
     if (m_context) {
-        // Takes m_framebuffer with it.
         m_compositor.destroyContext(m_context);
     }
 }
