@@ -135,52 +135,70 @@ And tab state flows one way, from the model to the strip:
 
 ## Memory structure
 
-Everything is in one process and on one thread. What a tab adds, and what
-all tabs share:
+Every statement in this section was checked in the code named with it or
+measured on the build described at the end; nothing here is inferred.
 
 ```
  process (one thread runs the shell, every page and the tab strip)
  |
  +-- shared by all views
- |     garbage-collected heap     one heap holds the DOM and script objects
- |                                of every view; a collection walks them all
- |     engine globals             atomic and static strings, line-break
- |                                iterators, the HTTP cache
- |     storage directory          cookies, localStorage and caches of one
- |                                --storage-dir
+ |     garbage-collected heap     one collector instance, the one of the
+ |                                thread all views run on
+ |     engine instance            one per process: atomic and static
+ |                                strings, line-break iterators, HTTP cache
+ |     storage                    cookies and localStorage of one
+ |                                --storage-dir, visible to every tab
  |     shell                      X window, EGL surface, compositor context
  |
  +-- per view (each tab, and the tab strip)
        shell     View             texture of the view's size (width x height
                                   x 4 bytes), GL context, framebuffer
-       engine    WebView          renderer and its GL resources, timers,
-                                  font cache and font selector
-                 script VM        one VM instance per view, not shared with
-                                  any other view
-                 browsing context document, layout tree and one script
-                                  context for the top-level page and one for
-                                  each iframe, all inside the view's VM
+       engine    WebView          renderer, timers, font cache and font
+                                  selector
+                 script VM        one VM instance per view
+                 script contexts  one for the top-level page and one for
+                                  each iframe, all made in the view's VM
 ```
 
-- A view's VM does not outlive a page: each top-level navigation throws the
-  VM away and makes a new one for the next document.
-- Views cannot reach each other's script objects. That is the right
-  default for unrelated tabs; a page and a window it opened would need one
-  VM between them, which this layout does not give.
-- Closing a tab destroys its view, VM and texture. The memory goes back to
-  the shared heap, and is reused or returned by later collections rather
-  than at once.
-- A background tab is paused, which stops its rendering and animation
-  frames. It keeps its DOM, its VM, its texture and its timers; nothing is
-  discarded from it, and the shell has no memory limit or tab eviction.
-- Because the heap and the thread are shared, a long script or a large
-  collection in one tab stalls the others, and memory is not attributed to
-  tabs: the numbers below are differences between runs, not per-tab
-  accounting.
+Where each of these comes from:
 
-Measured resident size with N tabs open (debug build, software GL, 1280x720
-window, six seconds after start; software GL keeps textures in ordinary
-memory, so a GPU build will differ):
+- One thread: the shell initializes the engine without
+  `PreferSeparateThread` (`Browser::init`); the engine logs
+  `isThreadMode=0`.
+- One heap: the collector is built with `GC_THREAD_ISOLATE`, which gives
+  every thread its own collector instance
+  (`third_party/escargot/third_party/GCutil`), and all views are on one
+  thread.
+- One engine instance: `g_starfishInstance` in
+  `src/public/delegate/LWEDelegate.cpp`; its members are in
+  `src/Starfish.h`.
+- One VM per view: `WebView::ensureScriptEngineInstance` in
+  `src/core/page/WebView.cpp`. `WebView::navigateCrossDocument` in the same
+  file removes the VM and makes a new one before it opens the next
+  document.
+- Script contexts: every `Window`, top-level or of an iframe, builds its
+  binding instance from the view's VM (`src/core/page/Window.cpp`).
+- Font cache and selector, timers and renderer are members of the
+  engine's `WebView` and are released in `WebView::destroy`.
+
+Measured behaviour:
+
+- Script globals are per tab. A global set in one tab is `undefined` in
+  another tab showing the same page.
+- Storage is shared. `localStorage` written in one tab is read in another
+  tab of the same origin (checked for `file:` and `http:`), and so is a
+  cookie (`http:`).
+- A background tab is paused: `requestAnimationFrame` callbacks stop
+  (`BackgroundTabStopsAnimating` in `BrowserTest.cpp`). Timers do not: a
+  10 ms `setInterval` in a background tab ran 97 times in one second. The
+  tab keeps its document and form state
+  (`TabKeepsItsFocusedElementInTheBackground`). The shell discards nothing
+  from background tabs and has no memory limit.
+- Tabs block each other. A 1500 ms busy loop in the active tab held up a
+  10 ms interval timer in a background tab for 1507 ms.
+
+Resident size with N tabs open, each in a separate run (1280x720 window,
+no tab strip, six seconds after start):
 
 | Tabs | Blank pages | Pages of 200 paragraphs |
 |---|---|---|
@@ -190,9 +208,38 @@ memory, so a GPU build will differ):
 | 8 | 298 MB | 317 MB |
 | 16 | 402 MB | 438 MB |
 
-About 13 MB for each blank tab and 15 MB for each text tab, of which
-3.7 MB is the view's texture. These were taken without the tab strip; it
-is one more view.
+That is about 13 MB for each added blank tab and 15 MB for each added
+text tab. A view's texture at this size is 3.7 MB of it.
+
+Closing tabs gives back only part of that. Starting from one tab, opening
+15 more and closing them again, six times over (text pages, 1280x720,
+resident size eight seconds after the last close):
+
+| Cycle | 16 tabs open | Back to one tab |
+|---|---|---|
+| start | | 211 MB |
+| 1 | 541 MB | 278 MB |
+| 2 | 617 MB | 346 MB |
+| 3 | 681 MB | 409 MB |
+| 4 | 738 MB | 469 MB |
+| 5 | 801 MB | 532 MB |
+| 6 | 863 MB | 595 MB |
+
+- Each cycle leaves about 63 MB behind, about 4 MB for each closed tab,
+  and it does not level off within six cycles.
+- The amount follows the view size, not the page: blank pages leave about
+  as much (55 MB a cycle), a 320x240 window far less (8 to 16 MB a cycle).
+- It is not left in the shell's GL objects: the number of textures,
+  buffers and programs in the share group is the same after every cycle.
+- It is not specific to this mode: creating and destroying 15 plain
+  `WebContainer::CreateGL` views of 1280x720, each with a window and
+  context of its own, leaves 70 to 140 MB behind per cycle.
+- Where the memory stays (the engine or the GL implementation) has not
+  been determined.
+
+All measurements: debug build, Mesa software rendering (llvmpipe), Xvfb.
+Software rendering keeps textures in ordinary memory, so sizes on a GPU
+will differ.
 
 ## Parts
 
@@ -237,12 +284,15 @@ compositor.
 Two things to keep in mind when changing this:
 
 - The engine remembers which context it bound last and does not bind it
-  again. Shell code that binds another context must put the previous one
-  back; `Compositor` does this with a scoped helper.
-- On resize a view gets a new texture, not new storage for the old one, and
-  drops its framebuffer attachment explicitly. A context only sees another
-  context's change to a shared texture after attaching it again, and GL may
-  hand out the old texture name for the new texture.
+  again (`RendererGL::getCurrentContext` in
+  `src/core/modules/renderer/RendererGL.cpp`). Shell code that binds
+  another context must put the previous one back; `Compositor` does this
+  with a scoped helper.
+- On resize a view gets a new texture and drops its framebuffer attachment
+  explicitly. Comparing texture names is not enough to see that the
+  attachment is stale: GL handed the deleted texture's name to the new
+  one, and the resized view then stayed empty
+  (`PageFollowsWindowSize` in `BrowserTest.cpp` covers it).
 
 Only the active tab and the tab strip are on screen. A tab in the
 background is paused and keeps its last frame; it takes the current window
@@ -329,9 +379,10 @@ would run into as well:
 
 Limits of this implementation:
 
-- Input-method composition is committed text only (XIM reports no
-  composition updates), and has not been exercised against a real input
-  method.
-- A resized view shows nothing until its page has painted at the new size.
+- Input-method text arrives only when it is committed: the X input
+  context is created without preedit callbacks (`XIMPreeditNothing`). This
+  path has not been run against a real input method.
+- A resized view is left out of the composite, so its rectangle is blank,
+  until its page has painted at the new size.
 - Every frame of a visible view recomposites the whole window.
 - Not tried under a window manager; tests run on a bare Xvfb display.
