@@ -133,6 +133,67 @@ And tab state flows one way, from the model to the strip:
  strip clicks --> BrowserUIChannel --> Browser::newTab/closeTab/activateTab --> TabModel
 ```
 
+## Memory structure
+
+Everything is in one process and on one thread. What a tab adds, and what
+all tabs share:
+
+```
+ process (one thread runs the shell, every page and the tab strip)
+ |
+ +-- shared by all views
+ |     garbage-collected heap     one heap holds the DOM and script objects
+ |                                of every view; a collection walks them all
+ |     engine globals             atomic and static strings, line-break
+ |                                iterators, the HTTP cache
+ |     storage directory          cookies, localStorage and caches of one
+ |                                --storage-dir
+ |     shell                      X window, EGL surface, compositor context
+ |
+ +-- per view (each tab, and the tab strip)
+       shell     View             texture of the view's size (width x height
+                                  x 4 bytes), GL context, framebuffer
+       engine    WebView          renderer and its GL resources, timers,
+                                  font cache and font selector
+                 script VM        one VM instance per view, not shared with
+                                  any other view
+                 browsing context document, layout tree and one script
+                                  context for the top-level page and one for
+                                  each iframe, all inside the view's VM
+```
+
+- A view's VM does not outlive a page: each top-level navigation throws the
+  VM away and makes a new one for the next document.
+- Views cannot reach each other's script objects. That is the right
+  default for unrelated tabs; a page and a window it opened would need one
+  VM between them, which this layout does not give.
+- Closing a tab destroys its view, VM and texture. The memory goes back to
+  the shared heap, and is reused or returned by later collections rather
+  than at once.
+- A background tab is paused, which stops its rendering and animation
+  frames. It keeps its DOM, its VM, its texture and its timers; nothing is
+  discarded from it, and the shell has no memory limit or tab eviction.
+- Because the heap and the thread are shared, a long script or a large
+  collection in one tab stalls the others, and memory is not attributed to
+  tabs: the numbers below are differences between runs, not per-tab
+  accounting.
+
+Measured resident size with N tabs open (debug build, software GL, 1280x720
+window, six seconds after start; software GL keeps textures in ordinary
+memory, so a GPU build will differ):
+
+| Tabs | Blank pages | Pages of 200 paragraphs |
+|---|---|---|
+| 1 | 207 MB | 212 MB |
+| 2 | 219 MB | 226 MB |
+| 4 | 245 MB | 257 MB |
+| 8 | 298 MB | 317 MB |
+| 16 | 402 MB | 438 MB |
+
+About 13 MB for each blank tab and 15 MB for each text tab, of which
+3.7 MB is the view's texture. These were taken without the tab strip; it
+is one more view.
+
 ## Parts
 
 | File | Responsibility | Knows about |
