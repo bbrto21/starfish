@@ -1,9 +1,39 @@
 # Browser mode
 
-`Starfish browser` runs the x11 shell as a tabbed browser. The shell owns
-one X window and its input; every page, and the tab strip itself, is an
-`LWE::WebContainer` that renders into a texture, and the shell draws those
-textures into the window.
+`Starfish browser` runs the x11 shell as a small tabbed browser. It is a
+development-time test bed, not a browser product.
+
+## Purpose and scope
+
+Starfish is meant to be embedded in real browsers later. A browser asks
+things of an engine that a single-page shell never does: several views
+alive at once, views that come and go, a host that composites them and
+routes input between them, pages in the background, a chrome that is
+itself a page. This mode exists so those paths are built against, run in
+CI and kept working while the engine is developed, before a product
+depends on them.
+
+So it is deliberately the smallest host that exercises them:
+
+- The shell owns one X window and its input. Every page, and the tab strip
+  itself, is an `LWE::WebContainer` that renders into a texture, and the
+  shell draws those textures into the window.
+- It uses the public embedding API only (`inc/`), the way an embedder
+  would. What it needs and the API lacks is a finding about the API, not
+  something to reach around.
+
+What it is not, and should not grow into here:
+
+- A product. There is no packaging or installation, no settings, history,
+  bookmarks, downloads, permission prompts, certificate UI, private mode
+  or session restore, and the tab strip is as plain as it can be.
+- A security boundary. Everything runs in one process on one thread; all
+  tabs share one engine instance, and a crash in one page ends the run.
+  The tab strip is kept apart from pages only as far as the embedding API
+  allows (see Tab strip).
+- A reference design for a product browser's shell. Its structure is
+  chosen to keep the engine-facing parts clear and testable, on one
+  platform (X11, GLib main loop, OpenGL ES 3).
 
 The plain shell (`Starfish <URL>`) is a different path: one `LWE::WebView`
 that the x11 bridge puts in a window of its own. Nothing in this directory
@@ -152,15 +182,30 @@ exec /path/to/Starfish browser "$@" --no-ui
 
 ## Known limits
 
-- GLib main loop only; the `uv_cairo_gl` backend is not supported.
-- A tab's title is read when a load finishes. A later change to
-  `document.title` is not shown: the embedding API has no callback for it.
-- Moving the focus between the tab strip and a page blurs the view that
-  loses it, and the engine then forgets that view's focused element.
-  Switching tabs does not blur, so a tab keeps its caret.
-- Pages get no `focus` or `blur` window events from the shell.
-- Input-method composition is committed text only; XIM reports no
-  composition updates.
-- A resized view shows nothing until its page has painted at the new size.
-- The engine runs on the shell's thread; `--prefer-isolated-thread` has no
+Left out on purpose, as outside the scope above:
+
+- Product features and hardening; see Purpose and scope.
+- Platforms other than X11 with the GLib main loop; the `uv_cairo_gl`
+  backend is not supported.
+- Running the engine on its own thread: `--prefer-isolated-thread` has no
   effect here.
+
+Findings about the engine or its embedding API that a product browser
+would run into as well:
+
+- The API has no callback for a title change. A tab's title is read when a
+  load finishes, so a later change to `document.title` is not shown.
+- The engine has no notion of a view having the system focus.
+  `WebContainer::Focus()` does nothing and `Blur()` makes the page drop its
+  focused element, so moving the focus between the tab strip and a page
+  loses that page's caret, and pages get no window `focus` or `blur`
+  events. Switching tabs avoids `Blur()` and keeps the caret.
+
+Limits of this implementation:
+
+- Input-method composition is committed text only (XIM reports no
+  composition updates), and has not been exercised against a real input
+  method.
+- A resized view shows nothing until its page has painted at the new size.
+- Every frame of a visible view recomposites the whole window.
+- Not tried under a window manager; tests run on a bare Xvfb display.

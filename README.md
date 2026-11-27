@@ -158,7 +158,8 @@ Default values are in **bold**.
 * -DSHELL=[ **x11** | glib_headless ]<br>
   Create an executable build target.
 * -DSTARFISH_SHELL_BROWSER=[ **OFF** | ON ]<br>
-  Build the tabbed browser mode (`Starfish browser`) into the shell. Needs
+  Build the tabbed browser mode (`Starfish browser`), a development test
+  bed for multi-view embedding, into the shell. Needs
   -DSHELL=x11 and -DBACKEND=glib_cairo_gl. CI builds with it.
 * -DCLI=[ **0** | 1 ]<br>
   Build the CLI on Linux. Requires a shell executable and
@@ -197,8 +198,9 @@ out
 ./out/release/lightweight-web-engine 'html/file/path'
 ```
 
-A shell built with `-DSTARFISH_SHELL_BROWSER=ON` also starts as a tabbed
-browser:
+A shell built with `-DSTARFISH_SHELL_BROWSER=ON` also starts as a small
+tabbed browser. It is a test bed for embedding the engine in a browser
+(several views, host-side compositing and input routing), not a product:
 
 ```sh
 ./out/release/lightweight-web-engine browser [URL...] [options]
