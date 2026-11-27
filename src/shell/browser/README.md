@@ -68,6 +68,71 @@ of the plain shell apply (`--width`, `--height`, `--timeout`,
 | Ctrl+Shift+Tab, Ctrl+PageUp | Previous tab |
 | Ctrl+L | Move to the address bar |
 
+## How tabs are shown
+
+One X window, split by the shell into rectangles. Each rectangle shows the
+texture of one view; a view is one `WebContainer`.
+
+```
+ X window (BrowserWindow)
++----------------------------------------------------------+
+| [ Tab A ][ Tab B* ][ Tab C ] [+]                          |  tab strip view
+| [<] [>] [R] [ address bar                               ] |  ui/index.html, 76 CSS px
++----------------------------------------------------------+
+|                                                          |
+|                                                          |
+|   view of the active tab (B)                             |  page view
+|                                                          |
+|                                                          |
++----------------------------------------------------------+
+  with --no-ui there is no strip and the page view fills the window
+```
+
+Every tab has a view of its own, but only the active tab's view is on
+screen. The others stay alive, paused, with their last frame:
+
+```
+                 WebContainer    GL context     texture
+                 ------------    ----------     -------
+ tab A  View ---- page A -------- context A ---> texture A     paused, not drawn
+ tab B  View ---- page B -------- context B ---> texture B --+
+ tab C  View ---- page C -------- context C ---> texture C   |  paused, not drawn
+ strip  View ---- ui/index.html - context U ---> texture U --+
+                                                             |
+                    contexts share textures with             v
+                    the compositor's context           Compositor
+                                                  copies the visible textures
+                                                  to their rectangles, bottom
+                                                  view first, and presents
+                                                             |
+                                                             v
+                                                  EGL surface of the X window
+```
+
+Switching to tab C changes which page view is listed as visible: B is
+paused, C is resumed and resized to the page rectangle if the window
+changed meanwhile, and the next composite draws texture C in the same
+rectangle. No window, surface or context is created or destroyed.
+
+Input takes the reverse route:
+
+```
+ X event --> BrowserWindow --> Browser --+-- Ctrl+T/W/Tab/L --> tab command
+                                         |
+                                         +--> InputRouter
+                                                |-- pointer, wheel --> view under the pointer
+                                                |                      (strip or active page),
+                                                |                      in that view's coordinates
+                                                +-- keys, IME text --> focused view
+```
+
+And tab state flows one way, from the model to the strip:
+
+```
+ page events (load started/finished) --> TabModel --> BrowserUIChannel --> strip page redraws
+ strip clicks --> BrowserUIChannel --> Browser::newTab/closeTab/activateTab --> TabModel
+```
+
 ## Parts
 
 | File | Responsibility | Knows about |
