@@ -249,6 +249,7 @@ int Shell::runBrowser(int argc, char* argv[])
     }
     options.width = init.geometry.width;
     options.height = init.geometry.height;
+    options.devicePixelRatio = init.scaleFactor;
     // A screenshot run shows no window either, as in the mini browser.
     options.isWindowVisible = !env.hideWindow && env.screenShot.empty();
     options.storageDir = others.storageDir.empty()

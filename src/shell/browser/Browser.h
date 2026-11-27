@@ -50,6 +50,8 @@ public:
     struct Options {
         unsigned width = 1280;
         unsigned height = 720;
+        // How many window pixels one CSS pixel covers.
+        float devicePixelRatio = 1;
         // A hidden window still renders; test runs use it.
         bool isWindowVisible = true;
         // Where the engine keeps cookies, storage and caches.
@@ -114,8 +116,10 @@ private:
     };
 
     bool createUIView(const std::string& uiDir);
-    // The strip along the top of the window the UI is shown in.
+    // The strip along the top of the window the UI is shown in, and its
+    // height in window pixels (0 without UI).
     View::Rect uiRect() const;
+    unsigned uiHeight() const;
     // The part of the window pages are shown in.
     View::Rect pageRect() const;
     // The views on screen, the bottom one first.
@@ -168,6 +172,7 @@ private:
     InputRouter m_inputRouter;
     // The tab whose view is on screen; follows m_tabs.activeTab().
     TabModel::TabId m_shownTab = TabModel::kNoTab;
+    float m_devicePixelRatio = 1;
     bool m_isEngineInitialized = false;
 };
 

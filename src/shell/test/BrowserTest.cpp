@@ -290,6 +290,39 @@ TEST_F(BrowserTest, HiddenWindowStillRenders)
     EXPECT_EQ("400x300", evaluate("innerWidth + 'x' + innerHeight"));
 }
 
+TEST_F(BrowserTest, DevicePixelRatioScalesPage)
+{
+    Browser::Options options;
+    options.width = 400;
+    options.height = 300;
+    options.devicePixelRatio = 2;
+    options.hasUI = false;
+    options.storageDir = "/tmp/starfish_storage/";
+    options.urls.push_back(
+        page("<body style='margin:0;background:%2300ff00'>"
+             "<div style='width:100px;height:100px;background:%23ff0000'>"
+             "</div><script>var seen = '';"
+             "onmousedown = function(e) {"
+             "  seen = e.clientX + ',' + e.clientY; };"
+             "</script></body>"));
+    ASSERT_TRUE(m_browser.init(options));
+    waitForActiveTab();
+
+    // The window keeps its size in pixels; the page is half as large in
+    // CSS pixels and drawn twice as big.
+    EXPECT_EQ("200x150 2", evaluate("innerWidth + 'x' + innerHeight + ' ' + "
+                                    "devicePixelRatio"));
+    EXPECT_TRUE(runUntil([this] {
+        return windowPixel(190, 190) == 0xff0000 &&
+               windowPixel(210, 210) == 0x00ff00;
+    }));
+
+    sendButton(ButtonPress, Button1, 120, 80);
+    sendButton(ButtonRelease, Button1, 120, 80);
+    EXPECT_TRUE(runUntil([this] { return evaluate("seen") == "60,40"; }))
+        << evaluate("seen");
+}
+
 TEST_F(BrowserTest, TabKeepsItsFocusedElementInTheBackground)
 {
     const char* form =
@@ -753,6 +786,25 @@ TEST_F(BrowserUITest, StripFollowsWindowWidth)
         return evaluate("innerWidth + 'x' + innerHeight") == "1000x424" &&
                windowPixel(990, 3) == 0xdee1e6 &&
                windowPixel(990, 490) == 0x00ff00;
+    }));
+}
+
+TEST_F(BrowserUITest, StripScalesWithDevicePixelRatio)
+{
+    Browser::Options options;
+    options.width = 800;
+    options.height = 400;
+    options.devicePixelRatio = 2;
+    options.storageDir = "/tmp/starfish_storage/";
+    options.urls.push_back(titledPage("First", "00ff00"));
+    ASSERT_TRUE(m_browser.init(options));
+    waitForActiveTab();
+
+    EXPECT_TRUE(waitForUI("innerWidth + 'x' + innerHeight", "400x76"));
+    EXPECT_EQ("400x124", evaluate("innerWidth + 'x' + innerHeight"));
+    EXPECT_TRUE(runUntil([this] {
+        return windowPixel(790, 6) == 0xdee1e6 &&
+               windowPixel(400, 2 * kUIHeight + 1) == 0x00ff00;
     }));
 }
 

@@ -50,8 +50,10 @@ public:
     explicit View(Compositor& compositor);
     ~View();
 
-    // LWE must be initialized.
-    bool init(const Rect& rect, const FrameHandler& frameHandler);
+    // LWE must be initialized. `devicePixelRatio` is how many window
+    // pixels one CSS pixel of the page covers.
+    bool init(const Rect& rect, float devicePixelRatio,
+              const FrameHandler& frameHandler);
 
     // Moves the view; a new size also resizes the page.
     void setRect(const Rect& rect);

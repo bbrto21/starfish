@@ -36,7 +36,8 @@ namespace StarfishShell {
 
 namespace {
 
-    // The height of browser/ui/index.html: its tab row and its toolbar.
+    // The height of browser/ui/index.html in CSS pixels: its tab row and its
+    // toolbar.
     const unsigned kUIHeight = 76;
 
     bool hasScheme(const std::string& text)
@@ -76,6 +77,7 @@ Browser::~Browser()
 
 bool Browser::init(const Options& options)
 {
+    m_devicePixelRatio = options.devicePixelRatio;
     m_appLoop = AppLoop::create();
     m_appLoop->init();
 
@@ -156,7 +158,8 @@ bool Browser::createUIView(const std::string& uiDir)
     std::string url = std::string("file://") + resolved;
 
     m_uiView.reset(new View(*m_compositor));
-    if (!m_uiView->init(uiRect(), [this](View*) { composite(); })) {
+    if (!m_uiView->init(uiRect(), m_devicePixelRatio,
+                        [this](View*) { composite(); })) {
         return false;
     }
     LWE::WebContainer* container = m_uiView->container();
@@ -178,12 +181,13 @@ bool Browser::createUIView(const std::string& uiDir)
 TabModel::TabId Browser::newTab(const std::string& url)
 {
     std::unique_ptr<View> view(new View(*m_compositor));
-    bool isCreated = view->init(pageRect(), [this](View* view) {
-        // A page in the background still draws now and then.
-        if (view == activeView()) {
-            composite();
-        }
-    });
+    bool isCreated =
+        view->init(pageRect(), m_devicePixelRatio, [this](View* view) {
+            // A page in the background still draws now and then.
+            if (view == activeView()) {
+                composite();
+            }
+        });
     if (!isCreated) {
         return TabModel::kNoTab;
     }
@@ -261,11 +265,16 @@ View* Browser::activeView()
     return viewOf(m_tabs.activeTab());
 }
 
+unsigned Browser::uiHeight() const
+{
+    return m_uiView ? static_cast<unsigned>(kUIHeight * m_devicePixelRatio) : 0;
+}
+
 View::Rect Browser::uiRect() const
 {
     View::Rect rect;
     rect.width = m_window->width();
-    rect.height = kUIHeight;
+    rect.height = uiHeight();
     return rect;
 }
 
@@ -274,11 +283,11 @@ View::Rect Browser::pageRect() const
     View::Rect rect;
     rect.width = m_window->width();
     rect.height = m_window->height();
-    if (m_uiView) {
+    if (unsigned height = uiHeight()) {
         // Pages get what the UI leaves; a window shorter than the UI
         // still gives them one row to render into.
-        rect.y = kUIHeight;
-        rect.height = rect.height > kUIHeight ? rect.height - kUIHeight : 1;
+        rect.y = height;
+        rect.height = rect.height > height ? rect.height - height : 1;
     }
     return rect;
 }

@@ -51,7 +51,8 @@ View::~View()
     }
 }
 
-bool View::init(const Rect& rect, const FrameHandler& frameHandler)
+bool View::init(const Rect& rect, float devicePixelRatio,
+                const FrameHandler& frameHandler)
 {
     m_rect = rect;
     m_frameHandler = frameHandler;
@@ -66,7 +67,8 @@ bool View::init(const Rect& rect, const FrameHandler& frameHandler)
     }
 
     LWE::WebContainer::WebContainerArguments args{
-        rect.width, rect.height, 1, "serif", "ko-KR", "Asia/Seoul",
+        rect.width, rect.height, devicePixelRatio,
+        "serif",    "ko-KR",     "Asia/Seoul",
     };
 
     typedef LWE::WebContainer WebContainer;
