@@ -206,7 +206,8 @@ browser:
 
 In this mode the shell owns the window and its input, and each page is an
 `LWE::WebContainer` that renders into a texture the shell composites
-(`src/shell/browser`). Each URL opens in its own tab. The options of the
+(`src/shell/browser`; its `README.md` describes the structure). Each URL
+opens in its own tab. The options of the
 plain shell apply (`--width`, `--height`, `--timeout`, `--storage-dir`,
 `--hide-window`, `--screen-shot`, ...), plus:
 
